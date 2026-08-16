@@ -10,6 +10,21 @@ const AVOID_LOOKAHEAD = 70; // how far ahead a soldier scans for an obstacle in 
 
 let nextSoldierId = 1;
 
+/** True when the straight segment between two points crosses no blocked cell. */
+function losClear(world: World, x0: number, y0: number, x1: number, y1: number): boolean {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const dist = Math.hypot(dx, dy);
+  const steps = Math.ceil(dist / (CELL / 2));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const cx = Math.floor((x0 + dx * t) / CELL);
+    const cy = Math.floor((y0 + dy * t) / CELL);
+    if (world.isBlocked(cx, cy)) return false;
+  }
+  return true;
+}
+
 export class Squad {
   readonly team: number;
   readonly soldiers: Soldier[] = [];
@@ -108,7 +123,7 @@ export class Squad {
     if (dist < ARRIVE_RADIUS) {
       this.orderX = null;
       this.orderY = null;
-      this.flow = null;
+      // Keep the flow field: stragglers still stuck behind trees use it to find their slots.
       return;
     }
 
@@ -116,7 +131,7 @@ export class Squad {
     // flow field around whatever is in the way.
     let dirX = dx / dist;
     let dirY = dy / dist;
-    if (!this.losClear(world, this.orderX, this.orderY)) {
+    if (!losClear(world, this.anchorX, this.anchorY, this.orderX, this.orderY)) {
       const flowDir = this.flow?.direction(this.anchorX, this.anchorY);
       if (flowDir) {
         dirX = flowDir[0];
@@ -139,21 +154,6 @@ export class Squad {
     this.anchorY += Math.sin(this.facing) * step;
   }
 
-  /** True when the straight segment from the anchor to (tx, ty) crosses no blocked cell. */
-  private losClear(world: World, tx: number, ty: number): boolean {
-    const dx = tx - this.anchorX;
-    const dy = ty - this.anchorY;
-    const dist = Math.hypot(dx, dy);
-    const steps = Math.ceil(dist / (CELL / 2));
-    for (let i = 1; i <= steps; i++) {
-      const t = i / steps;
-      const cx = Math.floor((this.anchorX + dx * t) / CELL);
-      const cy = Math.floor((this.anchorY + dy * t) / CELL);
-      if (world.isBlocked(cx, cy)) return false;
-    }
-    return true;
-  }
-
   private steerSoldiers(dt: number, world: World): void {
     for (const s of this.soldiers) {
       s.prevX = s.x;
@@ -167,7 +167,15 @@ export class Squad {
       if (dist > 0.01) {
         dx /= dist;
         dy /= dist;
-        [dx, dy] = this.avoidObstacles(world, s, dx, dy, dist);
+        // A blocked straight path means local dodging isn't enough (tree clusters):
+        // follow the squad's flow field, which routes around the whole forest.
+        const blocked = !losClear(world, s.x, s.y, tx, ty);
+        const flowDir = blocked ? this.flow?.direction(s.x, s.y) : null;
+        if (flowDir) {
+          dx = flowDir[0];
+          dy = flowDir[1];
+        }
+        [dx, dy] = this.avoidObstacles(world, s, dx, dy, flowDir ? AVOID_LOOKAHEAD : dist);
       }
 
       // Arrive: full speed when far from the slot, easing to a stop on it.
