@@ -1,5 +1,5 @@
 import { Container, Graphics, Sprite, Texture, type Renderer } from 'pixi.js';
-import { SOLDIER_RADIUS, type Soldier } from '../sim/soldier';
+import { SOLDIER_RADIUS } from '../sim/soldier';
 import type { Battle } from '../sim/battle';
 
 const TEAM_COLORS: { body: number; edge: number }[] = [
@@ -45,6 +45,7 @@ export class SoldierLayer {
   /** alpha = progress between the last two sim ticks, for smooth motion at any frame rate. */
   update(battle: Battle, alpha: number): void {
     for (const squad of battle.squads) {
+      const routing = squad.state === 'routing';
       for (const s of squad.soldiers) {
         const sprite = this.sprites.get(s.id);
         if (!sprite) continue;
@@ -53,15 +54,16 @@ export class SoldierLayer {
           s.prevY + (s.y - s.prevY) * alpha,
         );
         sprite.rotation = s.facing;
+        sprite.alpha = routing ? 0.7 : 1;
       }
     }
   }
 
-  remove(s: Soldier): void {
-    const sprite = this.sprites.get(s.id);
+  removeById(id: number): void {
+    const sprite = this.sprites.get(id);
     if (sprite) {
       sprite.destroy();
-      this.sprites.delete(s.id);
+      this.sprites.delete(id);
     }
   }
 }

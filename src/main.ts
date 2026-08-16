@@ -40,6 +40,10 @@ async function boot(): Promise<void> {
     .stroke({ width: 6, color: 0x121a0a });
   stage.addChild(border);
 
+  // Corpse stains accumulate under everything else that moves.
+  const corpseLayer = new Graphics();
+  stage.addChild(corpseLayer);
+
   // Selection rings draw under the soldiers.
   const selectionLayer = new Graphics();
   stage.addChild(selectionLayer);
@@ -91,6 +95,18 @@ async function boot(): Promise<void> {
     },
     (frameDt, alpha) => {
       camera.update(frameDt);
+
+      for (const death of battle.consumeDeaths()) {
+        soldierLayer.removeById(death.id);
+        if (!death.escaped) {
+          corpseLayer
+            .ellipse(death.x, death.y, 8, 5)
+            .fill({ color: 0x4a1f12, alpha: 0.55 })
+            .circle(death.x + 4, death.y + 2, 3)
+            .fill({ color: 0x3a1810, alpha: 0.5 });
+        }
+      }
+
       soldierLayer.update(battle, alpha);
 
       selectionLayer.clear();

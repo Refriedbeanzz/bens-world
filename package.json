@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
+    "stress": "esbuild scripts/stress.ts --bundle --format=esm --platform=node --outfile=node_modules/.tmp/stress.mjs && node node_modules/.tmp/stress.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

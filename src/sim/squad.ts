@@ -1,12 +1,25 @@
 import { FlowField } from './flowfield';
 import { FORMATION_SPEED, layoutSlots, type FormationKind, type Slot } from './formation';
-import { SOLDIER_ACCEL, SOLDIER_MAX_SPEED, SOLDIER_RADIUS, type Soldier } from './soldier';
+import {
+  MELEE_KEEP,
+  MELEE_REACH,
+  SOLDIER_ACCEL,
+  SOLDIER_HP,
+  SOLDIER_MAX_SPEED,
+  SOLDIER_RADIUS,
+  type Soldier,
+} from './soldier';
 import { CELL, type World } from './world';
 
 const MARCH_SPEED = 60; // how fast the formation anchor slides, px/s
 const TURN_RATE = 2.2; // rad/s — formations wheel around rather than snap-rotating
 const ARRIVE_RADIUS = 5;
 const AVOID_LOOKAHEAD = 70; // how far ahead a soldier scans for an obstacle in his way
+// A squad breaks and runs after losing this fraction of its starting men.
+const ROUT_CASUALTY_FRACTION = 0.4;
+
+export type SquadState = 'steady' | 'routing';
+export type SoldierLookup = (id: number) => Soldier | undefined;
 
 let nextSoldierId = 1;
 
@@ -46,9 +59,11 @@ export class Squad {
   readonly team: number;
   readonly soldiers: Soldier[] = [];
   formation: FormationKind;
+  state: SquadState = 'steady';
   anchorX: number;
   anchorY: number;
   facing: number;
+  private readonly initialCount: number;
   private slots: Slot[];
   private orderX: number | null = null;
   private orderY: number | null = null;
@@ -60,6 +75,7 @@ export class Squad {
     this.anchorX = x;
     this.anchorY = y;
     this.facing = facing;
+    this.initialCount = count;
     this.slots = layoutSlots(formation, count);
     for (let i = 0; i < count; i++) {
       const [sx, sy] = this.slotWorld(i);
@@ -75,6 +91,10 @@ export class Squad {
         facing,
         slot: i,
         avoidSide: 0,
+        hp: SOLDIER_HP,
+        targetId: 0,
+        cooldown: 0,
+        escaped: false,
       });
     }
   }
@@ -128,9 +148,31 @@ export class Squad {
     ];
   }
 
-  tick(dt: number, world: World): void {
-    this.moveAnchor(dt, world);
-    this.steerSoldiers(dt, world);
+  tick(dt: number, world: World, getSoldier: SoldierLookup): void {
+    if (this.state === 'steady') this.moveAnchor(dt, world);
+    this.steerSoldiers(dt, world, getSoldier);
+  }
+
+  /** Drop the dead, tighten the formation, and break if losses are past the morale line. */
+  removeDead(): Soldier[] {
+    const dead = this.soldiers.filter((s) => s.hp <= 0 || s.escaped);
+    if (dead.length === 0) return dead;
+    for (let i = this.soldiers.length - 1; i >= 0; i--) {
+      const s = this.soldiers[i]!;
+      if (s.hp <= 0 || s.escaped) this.soldiers.splice(i, 1);
+    }
+    if (this.soldiers.length > 0) {
+      this.slots = layoutSlots(this.formation, this.soldiers.length);
+      this.reassignSlots();
+    }
+    if (
+      this.state === 'steady' &&
+      this.soldiers.length <= this.initialCount * (1 - ROUT_CASUALTY_FRACTION)
+    ) {
+      this.state = 'routing';
+      for (const s of this.soldiers) s.targetId = 0;
+    }
+    return dead;
   }
 
   private moveAnchor(dt: number, world: World): void {
@@ -172,34 +214,59 @@ export class Squad {
     this.anchorY += Math.sin(this.facing) * step;
   }
 
-  private steerSoldiers(dt: number, world: World): void {
+  private steerSoldiers(dt: number, world: World, getSoldier: SoldierLookup): void {
+    const routing = this.state === 'routing';
+    // Routed soldiers run for their own map edge.
+    const fleeX = this.team === 0 ? -120 : world.widthPx + 120;
+
     for (const s of this.soldiers) {
       s.prevX = s.x;
       s.prevY = s.y;
 
-      const [slotX, slotY] = this.slotWorld(s.slot);
-      // Cohesion ladder: head for the slot; if trees block that, funnel toward the
-      // squad anchor (so everyone rounds the forest on the SAME side the formation
-      // took); only navigate solo by flow field if even the anchor is unreachable.
-      let tx = slotX;
-      let ty = slotY;
+      let tx: number;
+      let ty: number;
+      let stopRange = 0; // how short of the point to pull up (melee: stop at arm's length)
       let flowDir: [number, number] | null = null;
-      if (!losPassable(world, s.x, s.y, slotX, slotY)) {
-        if (losPassable(world, s.x, s.y, this.anchorX, this.anchorY)) {
-          tx = this.anchorX;
-          ty = this.anchorY;
-        } else {
-          flowDir = this.flow?.direction(s.x, s.y) ?? null;
+
+      const target = !routing && s.targetId !== 0 ? getSoldier(s.targetId) : undefined;
+      const engaged =
+        target !== undefined &&
+        target.hp > 0 &&
+        (target.x - s.x) ** 2 + (target.y - s.y) ** 2 <= MELEE_KEEP * MELEE_KEEP;
+
+      if (routing) {
+        tx = fleeX;
+        ty = s.y;
+      } else if (engaged) {
+        tx = target.x;
+        ty = target.y;
+        stopRange = MELEE_REACH * 0.8;
+      } else {
+        s.targetId = 0;
+        const [slotX, slotY] = this.slotWorld(s.slot);
+        // Cohesion ladder: head for the slot; if rocks block that, funnel toward the
+        // squad anchor (so everyone rounds the forest on the SAME side the formation
+        // took); only navigate solo by flow field if even the anchor is unreachable.
+        tx = slotX;
+        ty = slotY;
+        if (!losPassable(world, s.x, s.y, slotX, slotY)) {
+          if (losPassable(world, s.x, s.y, this.anchorX, this.anchorY)) {
+            tx = this.anchorX;
+            ty = this.anchorY;
+          } else {
+            flowDir = this.flow?.direction(s.x, s.y) ?? null;
+          }
         }
       }
 
       let dx = tx - s.x;
       let dy = ty - s.y;
-      const dist = Math.hypot(dx, dy);
+      const rawDist = Math.hypot(dx, dy);
+      const dist = Math.max(0, rawDist - stopRange);
 
-      if (dist > 0.01) {
-        dx /= dist;
-        dy /= dist;
+      if (rawDist > 0.01) {
+        dx /= rawDist;
+        dy /= rawDist;
         if (flowDir) {
           dx = flowDir[0];
           dy = flowDir[1];
@@ -207,9 +274,10 @@ export class Squad {
         [dx, dy] = this.avoidObstacles(world, s, dx, dy, flowDir ? AVOID_LOOKAHEAD : dist);
       }
 
-      // Arrive: full speed when far from the slot, easing to a stop on it.
-      // Wading through trees cuts speed.
-      const targetSpeed = SOLDIER_MAX_SPEED * Math.min(1, dist / 30) * world.speedAt(s.x, s.y);
+      // Arrive: full speed when far from the goal, easing to a stop on it.
+      // Wading through trees cuts speed; a fleeing man finds an extra step.
+      const panic = routing ? 1.1 : 1;
+      const targetSpeed = SOLDIER_MAX_SPEED * Math.min(1, dist / 30) * world.speedAt(s.x, s.y) * panic;
       const desiredVx = dx * targetSpeed;
       const desiredVy = dy * targetSpeed;
 
@@ -229,7 +297,11 @@ export class Squad {
       s.y += s.vy * dt;
 
       const speed = Math.hypot(s.vx, s.vy);
-      s.facing = speed > 12 ? Math.atan2(s.vy, s.vx) : this.facing;
+      if (engaged) {
+        s.facing = Math.atan2(target.y - s.y, target.x - s.x);
+      } else {
+        s.facing = speed > 12 ? Math.atan2(s.vy, s.vx) : this.facing;
+      }
     }
   }
 
