@@ -55,6 +55,22 @@ export class FlowField {
     const cx = Math.min(GRID_W - 1, Math.max(0, Math.floor(x / CELL)));
     const cy = Math.min(GRID_H - 1, Math.max(0, Math.floor(y / CELL)));
     const here = this.cost[cy * GRID_W + cx]!;
+
+    // Smooth gradient of the cost field (central differences) instead of snapping
+    // to one of 8 compass directions per cell — kills the zigzag march.
+    if (Number.isFinite(here)) {
+      const sample = (ox: number, oy: number): number => {
+        const nx = cx + ox;
+        const ny = cy + oy;
+        if (nx < 0 || ny < 0 || nx >= GRID_W || ny >= GRID_H) return here + 3;
+        const c = this.cost[ny * GRID_W + nx]!;
+        return Number.isFinite(c) ? c : here + 3; // walls read as steep uphill
+      };
+      const gx = sample(1, 0) - sample(-1, 0);
+      const gy = sample(0, 1) - sample(0, -1);
+      const len = Math.hypot(gx, gy);
+      if (len > 0.01) return [-gx / len, -gy / len];
+    }
     let bestDx = 0;
     let bestDy = 0;
     let bestGain = 0;

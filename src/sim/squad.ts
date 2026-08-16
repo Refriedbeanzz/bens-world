@@ -68,6 +68,9 @@ export class Squad {
   private orderX: number | null = null;
   private orderY: number | null = null;
   private flow: FlowField | null = null;
+  private flowTargetX = 0;
+  private flowTargetY = 0;
+  private attackTarget: Squad | null = null;
 
   constructor(team: number, count: number, x: number, y: number, facing: number, formation: FormationKind) {
     this.team = team;
@@ -100,9 +103,29 @@ export class Squad {
   }
 
   orderMove(x: number, y: number, world: World): void {
+    this.attackTarget = null;
     this.orderX = x;
     this.orderY = y;
-    this.flow = new FlowField(world, x, y);
+    this.rebuildFlow(world);
+  }
+
+  /** March on an enemy squad and keep pursuing it as it moves. */
+  orderAttack(target: Squad, world: World): void {
+    this.attackTarget = target;
+    this.orderX = target.anchorX;
+    this.orderY = target.anchorY;
+    this.rebuildFlow(world);
+  }
+
+  isAttacking(target?: Squad): boolean {
+    return target ? this.attackTarget === target : this.attackTarget !== null;
+  }
+
+  private rebuildFlow(world: World): void {
+    if (this.orderX === null || this.orderY === null) return;
+    this.flow = new FlowField(world, this.orderX, this.orderY);
+    this.flowTargetX = this.orderX;
+    this.flowTargetY = this.orderY;
   }
 
   setFormation(kind: FormationKind): void {
@@ -176,14 +199,35 @@ export class Squad {
   }
 
   private moveAnchor(dt: number, world: World): void {
+    // Pursuit: track the target squad's position; refresh the flow field when
+    // it has drifted far from where the field was computed.
+    if (this.attackTarget) {
+      if (this.attackTarget.soldiers.length === 0 || this.attackTarget.state === 'routing') {
+        this.attackTarget = null;
+        this.orderX = null;
+        this.orderY = null;
+        return;
+      }
+      this.orderX = this.attackTarget.anchorX;
+      this.orderY = this.attackTarget.anchorY;
+      const drift =
+        (this.orderX - this.flowTargetX) ** 2 + (this.orderY - this.flowTargetY) ** 2;
+      if (drift > 100 * 100) this.rebuildFlow(world);
+    }
+
     if (this.orderX === null || this.orderY === null) return;
     const dx = this.orderX - this.anchorX;
     const dy = this.orderY - this.anchorY;
     const dist = Math.hypot(dx, dy);
-    if (dist < ARRIVE_RADIUS) {
-      this.orderX = null;
-      this.orderY = null;
-      // Keep the flow field: stragglers still stuck behind trees use it to find their slots.
+    // When charging a squad, halt at contact distance and let the soldiers fight;
+    // for a ground order, arrive on the point.
+    const arriveAt = this.attackTarget ? 55 : ARRIVE_RADIUS;
+    if (dist < arriveAt) {
+      if (!this.attackTarget) {
+        this.orderX = null;
+        this.orderY = null;
+        // Keep the flow field: stragglers still stuck behind trees use it to find their slots.
+      }
       return;
     }
 

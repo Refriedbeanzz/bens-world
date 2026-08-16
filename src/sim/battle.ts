@@ -72,9 +72,18 @@ export class Battle {
 
   /** The player squad whose soldiers are under this point, or null. */
   playerSquadAt(x: number, y: number): Squad | null {
+    return this.squadAt(x, y, (squad) => squad.team === PLAYER_TEAM);
+  }
+
+  /** The enemy squad whose soldiers are under this point, or null. */
+  enemySquadAt(x: number, y: number): Squad | null {
+    return this.squadAt(x, y, (squad) => squad.team !== PLAYER_TEAM);
+  }
+
+  private squadAt(x: number, y: number, match: (squad: Squad) => boolean): Squad | null {
     const hitRadius = SOLDIER_RADIUS * 2.5;
     for (const squad of this.squads) {
-      if (squad.team !== PLAYER_TEAM) continue;
+      if (!match(squad)) continue;
       for (const s of squad.soldiers) {
         const dx = s.x - x;
         const dy = s.y - y;
@@ -117,7 +126,7 @@ export class Battle {
           best = other;
         }
       }
-      if (best) squad.orderMove(best.anchorX, best.anchorY, this.world);
+      if (best && !squad.isAttacking(best)) squad.orderAttack(best, this.world);
     }
   }
 
@@ -135,15 +144,15 @@ export class Battle {
           target = this.grid.nearestEnemy(s.x, s.y, s.team, MELEE_ENGAGE) ?? undefined;
           s.targetId = target?.id ?? 0;
           // Stagger the first swing so contact doesn't resolve in one synchronized chop.
-          if (target) s.cooldown = this.rng.range(0.25, 0.7);
+          if (target) s.cooldown = this.rng.range(0.4, 1.0);
         }
         if (!target) continue;
         const d2 = (target.x - s.x) ** 2 + (target.y - s.y) ** 2;
         if (d2 <= MELEE_REACH * MELEE_REACH) {
           s.cooldown -= dt;
           if (s.cooldown <= 0) {
-            target.hp -= this.rng.int(22, 34);
-            s.cooldown = this.rng.range(1.0, 1.6);
+            target.hp -= this.rng.int(10, 16);
+            s.cooldown = this.rng.range(1.2, 1.9);
           }
         }
       }

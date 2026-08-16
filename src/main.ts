@@ -57,6 +57,7 @@ async function boot(): Promise<void> {
   const orderMarker = new Graphics();
   stage.addChild(orderMarker);
   let markerAge = Infinity;
+  let markerColor = 0xf0e8c0;
 
   const camera = new Camera(world, stage, app.canvas);
 
@@ -73,11 +74,19 @@ async function boot(): Promise<void> {
       selected = clicked;
       return;
     }
-    if (selected) {
+    if (!selected) return;
+
+    // Clicking an enemy formation = charge it; clicking ground = march there.
+    const enemy = battle.enemySquadAt(wx, wy);
+    if (enemy) {
+      selected.orderAttack(enemy, battle.world);
+      markerColor = 0xe05050;
+    } else {
       selected.orderMove(wx, wy, battle.world);
-      markerAge = 0;
-      orderMarker.position.set(wx, wy);
+      markerColor = 0xf0e8c0;
     }
+    markerAge = 0;
+    orderMarker.position.set(wx, wy);
   });
 
   window.addEventListener('keydown', (e) => {
@@ -124,7 +133,7 @@ async function boot(): Promise<void> {
         const t = markerAge / 0.9;
         orderMarker
           .circle(0, 0, 10 + t * 18)
-          .stroke({ width: 3, color: 0xf0e8c0, alpha: 1 - t });
+          .stroke({ width: 3, color: markerColor, alpha: 1 - t });
       }
     },
   );
