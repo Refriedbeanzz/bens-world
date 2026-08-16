@@ -15,6 +15,7 @@ const FORMATION_KEYS: Record<string, FormationKind> = {
   '3': 'wedge',
   '4': 'square',
   '5': 'wall',
+  '6': 'loose',
 };
 
 async function boot(): Promise<void> {

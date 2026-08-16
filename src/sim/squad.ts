@@ -1,4 +1,4 @@
-import { layoutSlots, type FormationKind, type Slot } from './formation';
+import { FORMATION_SPEED, layoutSlots, type FormationKind, type Slot } from './formation';
 import { SOLDIER_ACCEL, SOLDIER_MAX_SPEED, SOLDIER_RADIUS, type Soldier } from './soldier';
 import type { World } from './world';
 
@@ -118,7 +118,8 @@ export class Squad {
 
     // Wheel: barely advance while facing is far off, full speed once lined up.
     const alignment = Math.max(0.15, Math.cos(diff));
-    const step = Math.min(dist, MARCH_SPEED * alignment * dt);
+    const speed = MARCH_SPEED * FORMATION_SPEED[this.formation];
+    const step = Math.min(dist, speed * alignment * dt);
     this.anchorX += Math.cos(this.facing) * step;
     this.anchorY += Math.sin(this.facing) * step;
   }

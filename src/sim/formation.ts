@@ -3,7 +3,18 @@
 // across the facing) and depth (distance behind the anchor). Orders move the anchor
 // and facing; soldiers chase their slot's world position.
 
-export type FormationKind = 'line' | 'column' | 'wedge' | 'square' | 'wall';
+export type FormationKind = 'line' | 'column' | 'wedge' | 'square' | 'wall' | 'loose';
+
+// March-speed multiplier per formation: packed shapes (wall) and shapes that must
+// hold a point (wedge) creep; open-order shapes cover ground fast.
+export const FORMATION_SPEED: Record<FormationKind, number> = {
+  line: 1.15,
+  loose: 1.25,
+  column: 1.0,
+  square: 0.9,
+  wedge: 0.75,
+  wall: 0.65,
+};
 
 export interface Slot {
   lateral: number;
@@ -14,6 +25,8 @@ const SPACING = 22;
 // Wall: shoulder-to-shoulder shield-wall spacing (soldier diameter is 14).
 const WALL_LATERAL = 15;
 const WALL_DEPTH = 16;
+// Loose: open order — skirmish spread, roughly double normal elbow room.
+const LOOSE_SPACING = 38;
 
 export function layoutSlots(kind: FormationKind, count: number): Slot[] {
   switch (kind) {
@@ -27,6 +40,8 @@ export function layoutSlots(kind: FormationKind, count: number): Slot[] {
       return wedge(count);
     case 'wall':
       return grid(count, Math.ceil(count / 2), WALL_LATERAL, WALL_DEPTH);
+    case 'loose':
+      return grid(count, Math.ceil(count / 3), LOOSE_SPACING, LOOSE_SPACING);
   }
 }
 
