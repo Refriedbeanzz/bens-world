@@ -14,4 +14,7 @@ export interface Soldier {
   vy: number;
   facing: number;
   slot: number;
+  // Which side (+1/-1) this soldier committed to when skirting an obstacle;
+  // 0 when unobstructed. Prevents flip-flopping between sides mid-dodge.
+  avoidSide: number;
 }

@@ -57,6 +57,7 @@ export class Squad {
         vy: 0,
         facing,
         slot: i,
+        avoidSide: 0,
       });
     }
   }
@@ -159,7 +160,22 @@ export class Squad {
       s.prevX = s.x;
       s.prevY = s.y;
 
-      const [tx, ty] = this.slotWorld(s.slot);
+      const [slotX, slotY] = this.slotWorld(s.slot);
+      // Cohesion ladder: head for the slot; if trees block that, funnel toward the
+      // squad anchor (so everyone rounds the forest on the SAME side the formation
+      // took); only navigate solo by flow field if even the anchor is unreachable.
+      let tx = slotX;
+      let ty = slotY;
+      let flowDir: [number, number] | null = null;
+      if (!losClear(world, s.x, s.y, slotX, slotY)) {
+        if (losClear(world, s.x, s.y, this.anchorX, this.anchorY)) {
+          tx = this.anchorX;
+          ty = this.anchorY;
+        } else {
+          flowDir = this.flow?.direction(s.x, s.y) ?? null;
+        }
+      }
+
       let dx = tx - s.x;
       let dy = ty - s.y;
       const dist = Math.hypot(dx, dy);
@@ -167,10 +183,6 @@ export class Squad {
       if (dist > 0.01) {
         dx /= dist;
         dy /= dist;
-        // A blocked straight path means local dodging isn't enough (tree clusters):
-        // follow the squad's flow field, which routes around the whole forest.
-        const blocked = !losClear(world, s.x, s.y, tx, ty);
-        const flowDir = blocked ? this.flow?.direction(s.x, s.y) : null;
         if (flowDir) {
           dx = flowDir[0];
           dy = flowDir[1];
@@ -213,9 +225,13 @@ export class Squad {
     distToTarget: number,
   ): [number, number] {
     const look = Math.min(AVOID_LOOKAHEAD, distToTarget);
+    // Perpendicular of the travel direction; "side" is measured against it.
+    const perpX = -dirY;
+    const perpY = dirX;
     let nearestProj = Infinity;
     let steerX = dirX;
     let steerY = dirY;
+    let conflicted = false;
 
     for (const o of world.obstacles) {
       const clearance = o.radius + SOLDIER_RADIUS + 3;
@@ -223,30 +239,26 @@ export class Squad {
       const oy = o.y - s.y;
       const proj = ox * dirX + oy * dirY; // distance along the path to the obstacle's closest approach
       if (proj <= 0 || proj > look + clearance || proj >= nearestProj) continue;
-      const closestX = dirX * proj - ox;
-      const closestY = dirY * proj - oy;
-      const offAxis = Math.hypot(closestX, closestY);
+      const offAxis = Math.hypot(dirX * proj - ox, dirY * proj - oy);
       if (offAxis >= clearance) continue;
 
+      conflicted = true;
       nearestProj = proj;
-      // Aim at a point beside the obstacle, on whichever side we're already closer to.
-      let sideX = closestX;
-      let sideY = closestY;
-      if (offAxis < 0.01) {
-        sideX = -dirY;
-        sideY = dirX;
-      } else {
-        sideX /= offAxis;
-        sideY /= offAxis;
+      // Commit to one side for the whole dodge (hysteresis): re-picking the nearer
+      // side every tick made soldiers wobble into the tree instead of past it.
+      if (s.avoidSide === 0) {
+        const cross = ox * perpX + oy * perpY;
+        s.avoidSide = cross > 0 ? -1 : 1;
       }
-      const aimX = o.x + sideX * clearance - s.x;
-      const aimY = o.y + sideY * clearance - s.y;
+      const aimX = o.x + perpX * s.avoidSide * clearance - s.x;
+      const aimY = o.y + perpY * s.avoidSide * clearance - s.y;
       const aimLen = Math.hypot(aimX, aimY);
       if (aimLen > 0.01) {
         steerX = aimX / aimLen;
         steerY = aimY / aimLen;
       }
     }
+    if (!conflicted) s.avoidSide = 0;
     return [steerX, steerY];
   }
 }
