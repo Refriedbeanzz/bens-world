@@ -25,8 +25,6 @@ const ROUT_CASUALTY_FRACTION = 0.4;
 export type SquadState = 'steady' | 'routing';
 export type SoldierLookup = (id: number) => Soldier | undefined;
 
-let nextSoldierId = 1;
-
 // True when the straight segment crosses nothing but open ground. Forest counts as
 // "not clear" — not because it's impassable, but so the decision to cut through vs
 // go around is made by the cost-aware flow field, never by beelining.
@@ -81,7 +79,16 @@ export class Squad {
   private flowTargetY = 0;
   private attackTarget: Squad | null = null;
 
-  constructor(team: number, count: number, x: number, y: number, facing: number, formation: FormationKind) {
+  constructor(
+    team: number,
+    count: number,
+    x: number,
+    y: number,
+    facing: number,
+    formation: FormationKind,
+    // Battle-owned id allocator: module-global ids broke run-to-run determinism.
+    allocId: () => number,
+  ) {
     this.team = team;
     this.formation = formation;
     this.anchorX = x;
@@ -92,7 +99,7 @@ export class Squad {
     for (let i = 0; i < count; i++) {
       const [sx, sy] = this.slotWorld(i);
       this.soldiers.push({
-        id: nextSoldierId++,
+        id: allocId(),
         team,
         x: sx,
         y: sy,
@@ -319,17 +326,23 @@ export class Squad {
       } else {
         s.targetId = 0;
         const [slotX, slotY] = this.slotWorld(s.slot);
-        // Cohesion ladder: head for the slot; if rocks block that, funnel toward the
-        // squad anchor (so everyone rounds the forest on the SAME side the formation
-        // took); only navigate solo by flow field if even the anchor is unreachable.
+        // Cohesion ladder: head for the slot; if rocks block that AND we're far from
+        // the squad, funnel toward the anchor (so everyone rounds terrain on the SAME
+        // side the formation took), or navigate solo by flow field if even the anchor
+        // is unreachable. Near the squad, just steer at the slot and let tangent
+        // dodging slide around the rock — funneling here deadlocked soldiers standing
+        // on the anchor when a rock sat between it and their slot.
         tx = slotX;
         ty = slotY;
         if (!losPassable(world, s.x, s.y, slotX, slotY)) {
-          if (losPassable(world, s.x, s.y, this.anchorX, this.anchorY)) {
-            tx = this.anchorX;
-            ty = this.anchorY;
-          } else {
-            flowDir = this.flow?.direction(s.x, s.y) ?? null;
+          const anchorDist = Math.hypot(this.anchorX - s.x, this.anchorY - s.y);
+          if (anchorDist > 90) {
+            if (losPassable(world, s.x, s.y, this.anchorX, this.anchorY)) {
+              tx = this.anchorX;
+              ty = this.anchorY;
+            } else {
+              flowDir = this.flow?.direction(s.x, s.y) ?? null;
+            }
           }
         }
       }

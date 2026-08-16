@@ -51,12 +51,14 @@ export class Battle {
   private readonly rng: Rng;
   private readonly pendingDeaths: DeathEvent[] = [];
   private aiClock = 0;
+  private nextSoldierId = 1;
 
   constructor(seed: number, setup: SquadSpec[] = DEFAULT_SETUP) {
     this.world = new World(seed);
     this.rng = new Rng(seed ^ 0x5eed);
     this.grid = new SpatialGrid(this.world.widthPx, this.world.heightPx);
 
+    const allocId = () => this.nextSoldierId++;
     for (const spec of setup) {
       this.squads.push(
         new Squad(
@@ -66,6 +68,7 @@ export class Battle {
           this.world.heightPx * spec.y,
           spec.facing,
           spec.formation,
+          allocId,
         ),
       );
     }
@@ -146,7 +149,17 @@ export class Battle {
         squad.inMelee = false;
         continue;
       }
-      // inMelee from last tick decides this tick's acquire radius (1-tick lag is fine).
+      // Same-tick contact detection: the instant any soldier is close enough to
+      // an enemy, the whole squad surges NOW — no one-tick hesitation on impact.
+      if (!squad.inMelee) {
+        const contactRange = MELEE_REACH * 2.2;
+        for (const s of squad.soldiers) {
+          if (this.grid.nearestEnemy(s.x, s.y, s.team, contactRange)) {
+            squad.inMelee = true;
+            break;
+          }
+        }
+      }
       const acquireRange = squad.inMelee ? MELEE_SURGE : MELEE_ENGAGE;
       let contact = false;
       for (const s of squad.soldiers) {
@@ -158,8 +171,9 @@ export class Battle {
         ) {
           target = this.grid.nearestEnemy(s.x, s.y, s.team, acquireRange) ?? undefined;
           s.targetId = target?.id ?? 0;
-          // Stagger the first swing so contact doesn't resolve in one synchronized chop.
-          if (target) s.cooldown = this.rng.range(0.4, 1.0);
+          // Small stagger so contact doesn't resolve in one synchronized chop,
+          // but short enough that the crash turns into fighting immediately.
+          if (target) s.cooldown = this.rng.range(0.1, 0.45);
         }
         if (!target) continue;
         const d2 = (target.x - s.x) ** 2 + (target.y - s.y) ** 2;
