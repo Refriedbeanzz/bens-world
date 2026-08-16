@@ -70,7 +70,7 @@ async function boot(): Promise<void> {
       return;
     }
     if (selected) {
-      selected.orderMove(wx, wy);
+      selected.orderMove(wx, wy, battle.world);
       markerAge = 0;
       orderMarker.position.set(wx, wy);
     }
