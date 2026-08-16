@@ -1,7 +1,14 @@
 import { Rng } from './rng';
 import { SpatialGrid } from './spatialgrid';
 import { Squad } from './squad';
-import { MELEE_ENGAGE, MELEE_KEEP, MELEE_REACH, SOLDIER_RADIUS, type Soldier } from './soldier';
+import {
+  MELEE_ENGAGE,
+  MELEE_PURSUE,
+  MELEE_REACH,
+  MELEE_SURGE,
+  SOLDIER_RADIUS,
+  type Soldier,
+} from './soldier';
 import { World } from './world';
 
 export const PLAYER_TEAM = 0;
@@ -130,24 +137,33 @@ export class Battle {
     }
   }
 
-  // Melee: acquire the nearest enemy in ENGAGE range, chase within KEEP, swing at REACH.
+  // Melee. Front soldiers quietly acquire within ENGAGE; the moment a squad has
+  // contact, the whole squad acquires out to SURGE and piles into the fight —
+  // no more back ranks standing around watching the front rank brawl.
   private combat(dt: number): void {
     for (const squad of this.squads) {
-      if (squad.state === 'routing') continue;
+      if (squad.state === 'routing') {
+        squad.inMelee = false;
+        continue;
+      }
+      // inMelee from last tick decides this tick's acquire radius (1-tick lag is fine).
+      const acquireRange = squad.inMelee ? MELEE_SURGE : MELEE_ENGAGE;
+      let contact = false;
       for (const s of squad.soldiers) {
         let target = s.targetId !== 0 ? this.soldierById.get(s.targetId) : undefined;
         if (
           !target ||
           target.hp <= 0 ||
-          (target.x - s.x) ** 2 + (target.y - s.y) ** 2 > MELEE_KEEP * MELEE_KEEP
+          (target.x - s.x) ** 2 + (target.y - s.y) ** 2 > MELEE_PURSUE * MELEE_PURSUE
         ) {
-          target = this.grid.nearestEnemy(s.x, s.y, s.team, MELEE_ENGAGE) ?? undefined;
+          target = this.grid.nearestEnemy(s.x, s.y, s.team, acquireRange) ?? undefined;
           s.targetId = target?.id ?? 0;
           // Stagger the first swing so contact doesn't resolve in one synchronized chop.
           if (target) s.cooldown = this.rng.range(0.4, 1.0);
         }
         if (!target) continue;
         const d2 = (target.x - s.x) ** 2 + (target.y - s.y) ** 2;
+        if (d2 <= (MELEE_REACH * 2.2) ** 2) contact = true;
         if (d2 <= MELEE_REACH * MELEE_REACH) {
           s.cooldown -= dt;
           if (s.cooldown <= 0) {
@@ -156,6 +172,7 @@ export class Battle {
           }
         }
       }
+      squad.inMelee = contact;
     }
   }
 

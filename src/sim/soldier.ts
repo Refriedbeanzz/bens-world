@@ -3,10 +3,12 @@ export const SOLDIER_MAX_SPEED = 95; // px/s — faster than the formation march
 export const SOLDIER_ACCEL = 400;
 
 export const SOLDIER_HP = 100;
-// Melee ranges: acquire a target inside ENGAGE, keep chasing one out to KEEP,
-// swing when inside REACH.
+// Melee ranges: quietly acquire a target inside ENGAGE; once the squad is in
+// contact, everyone acquires out to SURGE and piles in; chase a target out to
+// PURSUE; swing when inside REACH.
 export const MELEE_ENGAGE = 34;
-export const MELEE_KEEP = 60;
+export const MELEE_SURGE = 160;
+export const MELEE_PURSUE = 210;
 export const MELEE_REACH = 19;
 
 export interface Soldier {

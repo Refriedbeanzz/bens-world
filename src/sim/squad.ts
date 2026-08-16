@@ -1,7 +1,7 @@
 import { FlowField } from './flowfield';
 import { FORMATION_SPEED, layoutSlots, type FormationKind, type Slot } from './formation';
 import {
-  MELEE_KEEP,
+  MELEE_PURSUE,
   MELEE_REACH,
   SOLDIER_ACCEL,
   SOLDIER_HP,
@@ -60,6 +60,9 @@ export class Squad {
   readonly soldiers: Soldier[] = [];
   formation: FormationKind;
   state: SquadState = 'steady';
+  // True while the squad is in melee contact — set by the battle's combat pass.
+  // Unengaged soldiers of an in-melee squad surge in instead of holding slots.
+  inMelee = false;
   anchorX: number;
   anchorY: number;
   facing: number;
@@ -276,7 +279,7 @@ export class Squad {
       const engaged =
         target !== undefined &&
         target.hp > 0 &&
-        (target.x - s.x) ** 2 + (target.y - s.y) ** 2 <= MELEE_KEEP * MELEE_KEEP;
+        (target.x - s.x) ** 2 + (target.y - s.y) ** 2 <= MELEE_PURSUE * MELEE_PURSUE;
 
       if (routing) {
         tx = fleeX;

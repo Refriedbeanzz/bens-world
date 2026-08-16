@@ -15,11 +15,11 @@ export interface Obstacle {
   radius: number;
 }
 
-// Trees are soft terrain: passable but slow, and pathfinding charges extra to
-// enter (slightly more than the true time cost, so squads prefer open ground).
-// Rocks are hard walls.
-export const TREE_SPEED_FACTOR = 0.55;
-const TREE_PATH_COST = 2.2;
+// Trees are passable at full speed for now — a slowdown will return later as a
+// charge-interruption mechanic. Cells are still marked so that's a two-number
+// change. Rocks are hard walls.
+export const TREE_SPEED_FACTOR = 1.0;
+const TREE_PATH_COST = 1.0;
 
 export class World {
   readonly widthPx = GRID_W * CELL;
