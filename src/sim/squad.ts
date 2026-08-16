@@ -14,6 +14,10 @@ import { CELL, type World } from './world';
 const MARCH_SPEED = 60; // how fast the formation anchor slides, px/s
 const TURN_RATE = 2.2; // rad/s — formations wheel around rather than snap-rotating
 const ARRIVE_RADIUS = 5;
+// Momentum: a formation is a mass of men. ~2.5s to reach march speed, and it
+// brakes early enough to stop on the ordered point. Charging will build on this.
+const MARCH_ACCEL = 26; // px/s²
+const MARCH_DECEL = 40; // px/s²
 const AVOID_LOOKAHEAD = 70; // how far ahead a soldier scans for an obstacle in his way
 // A squad breaks and runs after losing this fraction of its starting men.
 const ROUT_CASUALTY_FRACTION = 0.4;
@@ -66,6 +70,8 @@ export class Squad {
   anchorX: number;
   anchorY: number;
   facing: number;
+  // Current formation speed, px/s — ramps up and down with momentum.
+  speed = 0;
   private readonly initialCount: number;
   private slots: Slot[];
   private orderX: number | null = null;
@@ -219,10 +225,16 @@ export class Squad {
       // Advance until the soldiers actually collide; then hold the anchor and
       // let the pile-in fight. Halting at a fixed distance from the enemy anchor
       // left the front ranks just outside sword reach, staring.
-      if (this.inMelee) return;
+      if (this.inMelee) {
+        this.speed = 0; // the crash of contact eats the momentum
+        return;
+      }
     }
 
-    if (this.orderX === null || this.orderY === null) return;
+    if (this.orderX === null || this.orderY === null) {
+      this.speed = 0;
+      return;
+    }
     const dx = this.orderX - this.anchorX;
     const dy = this.orderY - this.anchorY;
     const dist = Math.hypot(dx, dy);
@@ -233,6 +245,7 @@ export class Squad {
         this.orderY = null;
         // Keep the flow field: stragglers still stuck behind trees use it to find their slots.
       }
+      this.speed = 0;
       return;
     }
 
@@ -257,8 +270,21 @@ export class Squad {
 
     // Wheel: barely advance while facing is far off, full speed once lined up.
     const alignment = Math.max(0.15, Math.cos(diff));
-    const speed = MARCH_SPEED * FORMATION_SPEED[this.formation] * world.speedAt(this.anchorX, this.anchorY);
-    const step = Math.min(dist, speed * alignment * dt);
+    const maxSpeed =
+      MARCH_SPEED * FORMATION_SPEED[this.formation] * world.speedAt(this.anchorX, this.anchorY) * alignment;
+
+    // Momentum: ramp toward the cap, and brake ahead of the stop point so the
+    // formation eases in rather than stopping on a dime. For an attack order the
+    // "stop" is the enemy — no braking, hit them at full stride.
+    const brakeDist = (this.speed * this.speed) / (2 * MARCH_DECEL);
+    const targetSpeed = !this.attackTarget && dist <= brakeDist ? 0 : maxSpeed;
+    if (this.speed < targetSpeed) {
+      this.speed = Math.min(targetSpeed, this.speed + MARCH_ACCEL * dt);
+    } else {
+      this.speed = Math.max(targetSpeed, this.speed - MARCH_DECEL * dt);
+    }
+
+    const step = Math.min(dist, this.speed * dt);
     this.anchorX += Math.cos(this.facing) * step;
     this.anchorY += Math.sin(this.facing) * step;
   }
