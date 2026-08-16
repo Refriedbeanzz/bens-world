@@ -10,8 +10,25 @@ const AVOID_LOOKAHEAD = 70; // how far ahead a soldier scans for an obstacle in 
 
 let nextSoldierId = 1;
 
-/** True when the straight segment between two points crosses no blocked cell. */
+// True when the straight segment crosses nothing but open ground. Forest counts as
+// "not clear" — not because it's impassable, but so the decision to cut through vs
+// go around is made by the cost-aware flow field, never by beelining.
 function losClear(world: World, x0: number, y0: number, x1: number, y1: number): boolean {
+  const dx = x1 - x0;
+  const dy = y1 - y0;
+  const dist = Math.hypot(dx, dy);
+  const steps = Math.ceil(dist / (CELL / 2));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const cx = Math.floor((x0 + dx * t) / CELL);
+    const cy = Math.floor((y0 + dy * t) / CELL);
+    if (!world.isOpen(cx, cy)) return false;
+  }
+  return true;
+}
+
+/** True when the straight segment crosses no hard wall (rocks). Trees don't count — they're walkable. */
+function losPassable(world: World, x0: number, y0: number, x1: number, y1: number): boolean {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const dist = Math.hypot(dx, dy);
@@ -149,7 +166,7 @@ export class Squad {
 
     // Wheel: barely advance while facing is far off, full speed once lined up.
     const alignment = Math.max(0.15, Math.cos(diff));
-    const speed = MARCH_SPEED * FORMATION_SPEED[this.formation];
+    const speed = MARCH_SPEED * FORMATION_SPEED[this.formation] * world.speedAt(this.anchorX, this.anchorY);
     const step = Math.min(dist, speed * alignment * dt);
     this.anchorX += Math.cos(this.facing) * step;
     this.anchorY += Math.sin(this.facing) * step;
@@ -167,8 +184,8 @@ export class Squad {
       let tx = slotX;
       let ty = slotY;
       let flowDir: [number, number] | null = null;
-      if (!losClear(world, s.x, s.y, slotX, slotY)) {
-        if (losClear(world, s.x, s.y, this.anchorX, this.anchorY)) {
+      if (!losPassable(world, s.x, s.y, slotX, slotY)) {
+        if (losPassable(world, s.x, s.y, this.anchorX, this.anchorY)) {
           tx = this.anchorX;
           ty = this.anchorY;
         } else {
@@ -191,7 +208,8 @@ export class Squad {
       }
 
       // Arrive: full speed when far from the slot, easing to a stop on it.
-      const targetSpeed = SOLDIER_MAX_SPEED * Math.min(1, dist / 30);
+      // Wading through trees cuts speed.
+      const targetSpeed = SOLDIER_MAX_SPEED * Math.min(1, dist / 30) * world.speedAt(s.x, s.y);
       const desiredVx = dx * targetSpeed;
       const desiredVy = dy * targetSpeed;
 

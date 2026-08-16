@@ -15,10 +15,17 @@ export interface Obstacle {
   radius: number;
 }
 
+// Trees are soft terrain: passable but slow, and pathfinding charges extra to
+// enter (slightly more than the true time cost, so squads prefer open ground).
+// Rocks are hard walls.
+export const TREE_SPEED_FACTOR = 0.55;
+const TREE_PATH_COST = 2.2;
+
 export class World {
   readonly widthPx = GRID_W * CELL;
   readonly heightPx = GRID_H * CELL;
   readonly blocked = new Uint8Array(GRID_W * GRID_H);
+  readonly slow = new Uint8Array(GRID_W * GRID_H);
   readonly obstacles: Obstacle[] = [];
   readonly seed: number;
 
@@ -32,6 +39,27 @@ export class World {
   isBlocked(cx: number, cy: number): boolean {
     if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return true;
     return this.blocked[cy * GRID_W + cx] === 1;
+  }
+
+  /** Open = neither a wall nor slowing terrain. */
+  isOpen(cx: number, cy: number): boolean {
+    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return false;
+    const i = cy * GRID_W + cx;
+    return this.blocked[i] === 0 && this.slow[i] === 0;
+  }
+
+  /** Pathfinding cost multiplier for entering this cell (walls are skipped, not costed). */
+  cellCost(cx: number, cy: number): number {
+    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return 1;
+    return this.slow[cy * GRID_W + cx] === 1 ? TREE_PATH_COST : 1;
+  }
+
+  /** Movement speed multiplier at a world position. */
+  speedAt(x: number, y: number): number {
+    const cx = Math.floor(x / CELL);
+    const cy = Math.floor(y / CELL);
+    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return 1;
+    return this.slow[cy * GRID_W + cx] === 1 ? TREE_SPEED_FACTOR : 1;
   }
 
   private placeTreeClusters(rng: Rng): void {
@@ -83,7 +111,8 @@ export class World {
         const dx = centerX - o.x;
         const dy = centerY - o.y;
         if (dx * dx + dy * dy <= (o.radius + CELL * 0.4) ** 2) {
-          this.blocked[cy * GRID_W + cx] = 1;
+          if (o.kind === 'rock') this.blocked[cy * GRID_W + cx] = 1;
+          else this.slow[cy * GRID_W + cx] = 1;
         }
       }
     }

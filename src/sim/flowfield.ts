@@ -39,7 +39,7 @@ export class FlowField {
         if (world.isBlocked(nx, ny)) continue;
         // No corner-cutting: a diagonal needs both orthogonal cells open.
         if (dx !== 0 && dy !== 0 && (world.isBlocked(cx + dx, cy) || world.isBlocked(cx, cy + dy))) continue;
-        const nc = c + step;
+        const nc = c + step * world.cellCost(nx, ny);
         const ni = ny * GRID_W + nx;
         if (nc < this.cost[ni]!) {
           this.cost[ni] = nc;

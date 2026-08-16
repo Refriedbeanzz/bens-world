@@ -66,11 +66,13 @@ export class Battle {
     }
   }
 
-  // Hard guarantees after all steering: nobody inside a tree/rock, nobody off the map.
+  // Hard guarantees after all steering: nobody inside a rock, nobody off the map.
+  // Trees are soft — soldiers may pass under the canopy, just slowed.
   private resolveObstaclesAndBounds(): void {
     const world = this.world;
     for (const s of this.allSoldiers) {
       for (const o of world.obstacles) {
+        if (o.kind !== 'rock') continue;
         const dx = s.x - o.x;
         const dy = s.y - o.y;
         const min = o.radius + SOLDIER_RADIUS;
