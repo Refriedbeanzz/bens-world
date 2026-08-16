@@ -9,6 +9,7 @@ const ARRIVE_RADIUS = 5;
 let nextSoldierId = 1;
 
 export class Squad {
+  readonly team: number;
   readonly soldiers: Soldier[] = [];
   formation: FormationKind;
   anchorX: number;
@@ -19,6 +20,7 @@ export class Squad {
   private orderY: number | null = null;
 
   constructor(team: number, count: number, x: number, y: number, facing: number, formation: FormationKind) {
+    this.team = team;
     this.formation = formation;
     this.anchorX = x;
     this.anchorY = y;

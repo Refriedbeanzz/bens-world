@@ -2,6 +2,7 @@ import { Application, Container, Graphics } from 'pixi.js';
 import { startLoop } from './core/loop';
 import { Battle } from './sim/battle';
 import type { FormationKind } from './sim/formation';
+import type { Squad } from './sim/squad';
 import { Camera } from './render/camera';
 import { SoldierLayer } from './render/soldiers';
 import { buildTerrainSprite, buildObstacleLayer } from './render/terrain';
@@ -13,6 +14,7 @@ const FORMATION_KEYS: Record<string, FormationKind> = {
   '2': 'column',
   '3': 'wedge',
   '4': 'square',
+  '5': 'wall',
 };
 
 async function boot(): Promise<void> {
@@ -37,6 +39,10 @@ async function boot(): Promise<void> {
     .stroke({ width: 6, color: 0x121a0a });
   stage.addChild(border);
 
+  // Selection rings draw under the soldiers.
+  const selectionLayer = new Graphics();
+  stage.addChild(selectionLayer);
+
   const soldierLayer = new SoldierLayer(app.renderer, battle);
   stage.addChild(soldierLayer.container);
 
@@ -49,18 +55,33 @@ async function boot(): Promise<void> {
 
   const camera = new Camera(world, stage, app.canvas);
 
-  // Test command (until BW5's real UI): left-click marches the blue squad there.
+  // Bannerlord-style test control (until BW5's real UI):
+  // click one of your squads to select it, then click ground to march it there.
+  let selected: Squad | null = null;
+
   app.canvas.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     const [wx, wy] = camera.screenToWorld(e.clientX, e.clientY);
-    battle.playerSquad.orderMove(wx, wy);
-    markerAge = 0;
-    orderMarker.position.set(wx, wy);
+
+    const clicked = battle.playerSquadAt(wx, wy);
+    if (clicked) {
+      selected = clicked;
+      return;
+    }
+    if (selected) {
+      selected.orderMove(wx, wy);
+      markerAge = 0;
+      orderMarker.position.set(wx, wy);
+    }
   });
 
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      selected = null;
+      return;
+    }
     const kind = FORMATION_KEYS[e.key];
-    if (kind) battle.playerSquad.setFormation(kind);
+    if (kind && selected) selected.setFormation(kind);
   });
 
   startLoop(
@@ -70,6 +91,15 @@ async function boot(): Promise<void> {
     (frameDt, alpha) => {
       camera.update(frameDt);
       soldierLayer.update(battle, alpha);
+
+      selectionLayer.clear();
+      if (selected) {
+        for (const s of selected.soldiers) {
+          selectionLayer
+            .circle(s.prevX + (s.x - s.prevX) * alpha, s.prevY + (s.y - s.prevY) * alpha, 10)
+            .stroke({ width: 2, color: 0xf0d878, alpha: 0.85 });
+        }
+      }
 
       markerAge += frameDt;
       orderMarker.clear();
