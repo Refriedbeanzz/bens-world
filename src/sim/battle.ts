@@ -167,8 +167,8 @@ export class Battle {
         if (d2 <= MELEE_REACH * MELEE_REACH) {
           s.cooldown -= dt;
           if (s.cooldown <= 0) {
-            target.hp -= this.rng.int(10, 16);
-            s.cooldown = this.rng.range(1.2, 1.9);
+            target.hp -= this.rng.int(7, 11);
+            s.cooldown = this.rng.range(1.4, 2.0);
           }
         }
       }
