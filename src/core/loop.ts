@@ -3,7 +3,10 @@
 export const SIM_DT = 1 / 30;
 const MAX_FRAME_TIME = 0.25;
 
-export function startLoop(simTick: (dt: number) => void, render: (frameDt: number) => void): void {
+export function startLoop(
+  simTick: (dt: number) => void,
+  render: (frameDt: number, alpha: number) => void,
+): void {
   let last = performance.now();
   let accumulator = 0;
 
@@ -18,7 +21,8 @@ export function startLoop(simTick: (dt: number) => void, render: (frameDt: numbe
       accumulator -= SIM_DT;
     }
 
-    render(frameDt);
+    // alpha = how far we are between sim ticks; rendering interpolates with it.
+    render(frameDt, accumulator / SIM_DT);
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);

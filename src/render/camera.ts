@@ -58,6 +58,13 @@ export class Camera {
     );
   }
 
+  screenToWorld(sx: number, sy: number): [number, number] {
+    return [
+      this.x + (sx - window.innerWidth / 2) / this.zoom,
+      this.y + (sy - window.innerHeight / 2) / this.zoom,
+    ];
+  }
+
   update(dtSeconds: number): void {
     const speed = (PAN_SPEED / this.zoom) * dtSeconds;
     if (this.keys.has('w') || this.keys.has('arrowup')) this.y -= speed;
