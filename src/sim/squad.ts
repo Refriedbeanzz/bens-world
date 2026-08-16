@@ -216,15 +216,17 @@ export class Squad {
       const drift =
         (this.orderX - this.flowTargetX) ** 2 + (this.orderY - this.flowTargetY) ** 2;
       if (drift > 100 * 100) this.rebuildFlow(world);
+      // Advance until the soldiers actually collide; then hold the anchor and
+      // let the pile-in fight. Halting at a fixed distance from the enemy anchor
+      // left the front ranks just outside sword reach, staring.
+      if (this.inMelee) return;
     }
 
     if (this.orderX === null || this.orderY === null) return;
     const dx = this.orderX - this.anchorX;
     const dy = this.orderY - this.anchorY;
     const dist = Math.hypot(dx, dy);
-    // When charging a squad, halt at contact distance and let the soldiers fight;
-    // for a ground order, arrive on the point.
-    const arriveAt = this.attackTarget ? 55 : ARRIVE_RADIUS;
+    const arriveAt = this.attackTarget ? 24 : ARRIVE_RADIUS;
     if (dist < arriveAt) {
       if (!this.attackTarget) {
         this.orderX = null;
