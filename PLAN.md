@@ -32,8 +32,11 @@ animations, art style, pathfinding, formations, combat — then expand (more map
   basic morale (units break and flee).
 - **BW4 — Unit types**: pikemen, archers, crossbowmen, swordsmen, knights, cavalry — distinct
   stats, ranges, speeds, and behaviors (pike walls vs cavalry charges, crossbow reload vs bow rate).
+  Plus combat stances (defensive / offensive / balanced) with per-formation defaults (wall/circle
+  default defensive, wedge offensive) — stances only mean something once unit types exist.
 - **BW5 — Command UI**: select squads, issue move/attack/hold orders, formation switching,
-  drag-to-set facing and width, order preview ghosts.
+  drag-to-set facing and width, order preview ghosts. Flank and fighting-retreat commands live
+  here (they're command macros that deserve buttons, not more hidden hotkeys).
 - **BW6 — Terrain & maps**: elevation/slopes (uphill slows, high ground helps archers), ridges,
   canyons, big rock fields, steppe/biome variety, multiple battlefields. Deliberately after unit
   types — terrain is only tactically meaningful once archers/cavalry/pikes exist. The cell-based

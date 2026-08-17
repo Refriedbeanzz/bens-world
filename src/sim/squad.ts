@@ -32,6 +32,10 @@ const CHARGE_SOLDIER_SPEED_MULT = 1.6;
 // Formation discipline: a soldier breaks off a chase once it drags him this far
 // from his squad's anchor — no endless cross-map pursuit of routed men.
 const PURSUIT_LEASH = 170;
+// In-combat footwork: a man trading blows shuffles, he doesn't sprint. Surging
+// toward a fight is quicker but still slower than open-field running.
+const FIGHTING_SPEED_MULT = 0.35;
+const SURGE_SPEED_MULT = 0.75;
 
 export type SquadState = 'steady' | 'routing' | 'fleeing';
 export type SoldierLookup = (id: number) => Soldier | undefined;
@@ -426,8 +430,12 @@ export class Squad {
 
       // Arrive: full speed when far from the goal, easing to a stop on it.
       // Wading through trees cuts speed; a fleeing man finds an extra step.
-      const panic = routing ? 1.1 : this.charging ? CHARGE_SOLDIER_SPEED_MULT : 1;
-      const targetSpeed = SOLDIER_MAX_SPEED * Math.min(1, dist / 30) * world.speedAt(s.x, s.y) * panic;
+      let paceMult = routing ? 1.1 : this.charging ? CHARGE_SOLDIER_SPEED_MULT : 1;
+      if (engaged) {
+        // Trading blows = shuffling footwork; closing in = a hustle, not a sprint.
+        paceMult = rawDist < MELEE_REACH * 2 ? FIGHTING_SPEED_MULT : SURGE_SPEED_MULT;
+      }
+      const targetSpeed = SOLDIER_MAX_SPEED * Math.min(1, dist / 30) * world.speedAt(s.x, s.y) * paceMult;
       const desiredVx = dx * targetSpeed;
       const desiredVy = dy * targetSpeed;
 
