@@ -46,8 +46,17 @@ animations, art style, pathfinding, formations, combat — then expand (more map
   canyons, big rock fields, steppe/biome variety, multiple battlefields. Deliberately after unit
   types — terrain is only tactically meaningful once archers/cavalry/pikes exist. The cell-based
   world model (blocked/slow/cost flags) was built to absorb this without rework.
-- **BW8 — Art & polish**: soldier sprite animations (walk, attack, death), cohesive graphical
-  style, battle effects (arrows, blood, dust), sound.
+- **BW8 — Art & polish** (style locked with Jonathan 2026-08-16):
+  - **Period**: 12th–13th century — nasal/great helms, mail + team-color surcoats, kite/heater
+    shields, pikes, self bows, early crossbows, caparisoned knight horses. No plate anachronisms.
+  - **Style**: hand-drawn Norland-like — soft wobbly outlines, organic shapes, warm muted palette,
+    texture grain; built procedurally for consistency and custom-unit support.
+  - **Soldier rig**: 3 sprites per soldier — armless body + left hand + right hand; weapons held
+    by hands and procedurally animated (melee wind-up/swing/return, bow draw-loose, crossbow
+    crank); walk bob on bodies.
+  - **Gore**: heavy — blood spurts on hits, spreading pools, persistent static corpse sprites
+    (random sprawl) that stay all battle.
+  - Plus: battle effects (dust behind charges, impact flashes), terrain texture upgrade, UI reskin.
 - **Later**: more battlefields, battle setup screen / army picker, multiplayer (lockstep over the
   deterministic sim).
 - **Later — player-created content**: custom units (stat-editor over the unittype data blocks,
