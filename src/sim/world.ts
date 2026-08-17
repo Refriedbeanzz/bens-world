@@ -341,6 +341,10 @@ export class World {
   }
 
   private placeTreeClusters(rng: Rng): void {
+    // Own RNG stream for the size roll, so adding tree-size variety doesn't
+    // shift how many values are drawn from `rng` — which would silently
+    // change where every rock afterward lands for a given seed.
+    const sizeRng = new Rng(this.seed ^ 0x7a3c91);
     const clusters = rng.int(this.spec.treeClusters[0], this.spec.treeClusters[1]);
     for (let c = 0; c < clusters; c++) {
       const cx = rng.range(this.widthPx * 0.06, this.widthPx * 0.94);
@@ -352,11 +356,13 @@ export class World {
       for (let t = 0; t < trees; t++) {
         const angle = rng.range(0, Math.PI * 2);
         const dist = spread * Math.sqrt(rng.next());
+        // Mostly modest trees, with an occasional big old one for size variety.
+        const big = sizeRng.next() < 0.16;
         this.addObstacle({
           kind: 'tree',
           x: cx + Math.cos(angle) * dist,
           y: cy + Math.sin(angle) * dist,
-          radius: rng.range(12, 20),
+          radius: big ? rng.range(26, 34) : rng.range(11, 19),
         });
       }
     }
