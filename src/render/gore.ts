@@ -68,17 +68,26 @@ export class GoreLayer {
 
     if (parts) {
       const corpse = new Container();
-      const body = new Sprite(parts.body.tex);
-      body.anchor.set(parts.body.ax, parts.body.ay);
+      const body = new Sprite(parts.corpse.tex);
+      body.anchor.set(parts.corpse.ax, parts.corpse.ay);
       const hl = new Sprite(parts.handL.tex);
       hl.anchor.set(parts.handL.ax, parts.handL.ay);
       const hr = new Sprite(parts.handR.tex);
       hr.anchor.set(parts.handR.ax, parts.handR.ay);
-      // Sprawl: limbs flung at broken angles, weapon dropped beside the body.
-      hl.position.set(rng.range(-6, 2), rng.range(-9, -3));
-      hl.rotation = rng.range(-2.4, 2.4);
-      hr.position.set(rng.range(-6, 2), rng.range(3, 9));
-      hr.rotation = rng.range(-2.4, 2.4);
+      if (parts.mounted) {
+        // Rider flung clear of the fallen horse.
+        hl.position.set(rng.range(-6, 2), rng.range(-9, -3));
+        hl.rotation = rng.range(-2.4, 2.4);
+        hr.position.set(rng.range(-6, 2), rng.range(3, 9));
+        hr.rotation = rng.range(-2.4, 2.4);
+      } else {
+        // Arms fallen near the torso/shoulder area of the PRONE body (drawn
+        // head-first along local -x), one flung wider than the other.
+        hl.position.set(rng.range(-16, -8), rng.range(-9, -3));
+        hl.rotation = rng.range(-2.6, 2.6);
+        hr.position.set(rng.range(-16, -6), rng.range(3, 11));
+        hr.rotation = rng.range(-2.6, 2.6);
+      }
       corpse.addChild(body, hl, hr);
       corpse.position.set(x, y);
       corpse.rotation = facing + rng.range(-2.6, 2.6);

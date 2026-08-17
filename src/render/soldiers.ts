@@ -61,9 +61,12 @@ export interface Part {
 
 export interface PartSet {
   body: Part;
+  /** A genuine prone silhouette for corpses — not the standing body reused. */
+  corpse: Part;
   handL: Part;
   handR: Part;
   shadow: Part;
+  mounted: boolean;
 }
 
 type AnimKind = 'swing' | 'thrust' | 'lance' | 'loose';
@@ -676,19 +679,70 @@ function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number, variant:
   }
 }
 
+// A genuinely PRONE body — a fallen figure viewed from above has a long
+// silhouette (head, torso, splayed legs), nothing like the round standing
+// body's shoulder-width footprint. Reusing the standing texture for corpses
+// is exactly why they used to just look "dead in place" instead of lying
+// down. Drawn along local +x: head at the near end, legs splayed at the far.
+function drawProneBody(g: Graphics, rng: Rng, type: UnitType, team: number): void {
+  const t = teamOf(team);
+  const r = type.radius;
+  const armored = type.armor >= 2;
+  const splay = rng.range(0.4, 0.85) * (rng.next() < 0.5 ? 1 : -1);
+
+  // Legs: two tapering mail-clad limbs fanned from the hip, splayed unevenly
+  // for a natural collapse rather than a symmetric mannequin pose.
+  const hipX = r * 0.55;
+  const legLen = r * 2.0;
+  for (const side of [-1, 1] as const) {
+    const bendX = hipX + legLen * 0.55;
+    const bendY = side * r * (0.3 + Math.abs(splay) * 0.4);
+    const spread = side === Math.sign(splay) ? 1.15 : 0.8;
+    const footX = hipX + legLen * spread;
+    const footY = side * r * (0.4 + Math.abs(splay) * 1.4);
+    wobblyLine(g, rng, hipX, side * r * 0.22, bendX, bendY, r * 0.46, STEEL_DARK);
+    wobblyLine(g, rng, bendX, bendY, footX, footY, r * 0.4, STEEL_DARK);
+    g.moveTo(hipX, side * r * 0.22).quadraticCurveTo(bendX, bendY, footX, footY).stroke({
+      width: r * 0.22,
+      color: STEEL,
+      alpha: 0.5,
+    });
+  }
+
+  // Torso: elongated mail hauberk + surcoat capsule, form-shaded and grimed
+  // like the standing body so it still reads as the same soldier.
+  const torsoX = -r * 0.2;
+  wobblyEllipse(g, rng, torsoX, 0, r * 1.2, r * 0.86, STEEL_DARK, OUTLINE, 1);
+  wobblyEllipse(g, rng, torsoX, 0, r * 1.0, r * 0.68, t.cloth, t.clothDark, 1);
+  paintedShade(g, torsoX, 0, r * 0.85, LIGHT_A, DARK_A, HIGHLIGHT, SHADOW);
+  grime(g, rng, torsoX, 0, r * 0.95, 4, [0x5a4326, 0x3a2c18]);
+  g.circle(-r * 0.28, 0, r * 0.5).fill(t.trim).stroke({ width: 0.4, color: WOOD_DARK }); // belt buckle
+
+  // Head at the far end from the legs, turned to one side.
+  const headX = -r * 2.25;
+  const headY = rng.range(-0.45, 0.45) * r;
+  wobblyCircle(g, rng, headX, headY, r * 0.5, STEEL_DARK, OUTLINE, 1);
+  wobblyCircle(g, rng, headX, headY, r * 0.36, armored ? STEEL : 0x8a7250, STEEL_DARK, 0.7);
+}
+
 export function makePartSet(renderer: Renderer, team: number, type: UnitType, variant: number): PartSet {
   const seed = team * 977 + type.key.length * 131 + type.hp + variant * 5347;
   const r = type.radius;
+  const bodyPart = bake(renderer, seed ^ 0x11, (g, rng) =>
+    type.mounted ? drawHorseBody(g, rng, type, team, variant) : drawFootBody(g, rng, type, team, variant),
+  );
   return {
-    body: bake(renderer, seed ^ 0x11, (g, rng) =>
-      type.mounted ? drawHorseBody(g, rng, type, team, variant) : drawFootBody(g, rng, type, team, variant),
-    ),
+    body: bodyPart,
+    // Mounted corpses reuse the horse body (already an elongated top-down
+    // silhouette, unlike the round human one, so it doesn't need a rebuild).
+    corpse: type.mounted ? bodyPart : bake(renderer, seed ^ 0x55, (g, rng) => drawProneBody(g, rng, type, team)),
     handL: bake(renderer, seed ^ 0x22, (g, rng) => drawHandL(g, rng, type, team, variant)),
     handR: bake(renderer, seed ^ 0x33, (g, rng) => drawHandR(g, rng, type, team)),
     shadow: bake(renderer, seed ^ 0x44, (g) => {
       if (type.mounted) g.ellipse(0.1 * r, 0, r * 2.2, r * 1.0).fill({ color: 0x000000, alpha: 0.55 });
       else g.ellipse(0, 0, r * 1.2, r * 1.05).fill({ color: 0x000000, alpha: 0.55 });
     }),
+    mounted: type.mounted,
   };
 }
 

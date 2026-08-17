@@ -439,6 +439,56 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
             alpha: hillT * (isCrest ? 0.32 : 0.4),
           });
       }
+
+      // A faint SECOND pass at a much lower elevation threshold — gentle
+      // undulation gets a hint of contour linework too, not just real hills,
+      // so the ground carries ink texture everywhere instead of only on the
+      // handful of tall features.
+      const softT = Math.min(1, Math.max(0, (h - 0.44) / 0.14)) * (1 - hillT);
+      if (softT > 0.1) {
+        const x0 = jx - cxr * 5;
+        const y0 = jy - cyr * 5;
+        const x1 = jx + cxr * 5;
+        const y1 = jy + cyr * 5;
+        g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 0.5, color: HACH_INK, alpha: softT * 0.16 });
+      }
+    }
+  }
+
+  // Dirt-patch contours: a thin ink line tracing the boundary of a dry
+  // patch — the same "cartographer's edge" language as the hachures, applied
+  // to ground cover instead of elevation, so a dirt patch reads as a drawn
+  // shape instead of just a soft color gradient.
+  const dirtInkRng = new Rng(world.seed ^ 0x7e21a4);
+  const DIRT_INK = lerpColor(0x2c2214, pal.dirt, 0.25);
+  for (let py = 18; py < world.heightPx; py += 22) {
+    for (let px = 18; px < world.widthPx; px += 22) {
+      const jx = px + dirtInkRng.range(-6, 6);
+      const jy = py + dirtInkRng.range(-6, 6);
+      const cx = Math.floor(jx / CELL);
+      const cy = Math.floor(jy / CELL);
+      if (!isOpenGround(world, cx, cy)) continue;
+      const here = dirtLeanAt(jx, jy);
+      if (here < 0.3 || here > 0.75) continue; // only right at the transition band
+      const d = 10;
+      const gx = dirtLeanAt(jx + d, jy) - dirtLeanAt(jx - d, jy);
+      const gy = dirtLeanAt(jx, jy + d) - dirtLeanAt(jx, jy - d);
+      const glen = Math.hypot(gx, gy);
+      if (glen < 0.02) continue; // too flat a gradient here — no real edge to draw
+      const cxr = -gy / glen;
+      const cyr = gx / glen;
+      const len = dirtInkRng.range(5, 10);
+      wobblyLine(
+        g,
+        dirtInkRng,
+        jx - cxr * len * 0.5,
+        jy - cyr * len * 0.5,
+        jx + cxr * len * 0.5,
+        jy + cyr * len * 0.5,
+        0.6,
+        DIRT_INK,
+        0.22,
+      );
     }
   }
 
