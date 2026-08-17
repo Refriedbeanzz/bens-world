@@ -55,12 +55,33 @@ export const FORMATION_JITTER: Record<FormationKind, number> = {
   circle: 0.6,
 };
 
-/** scale: spacing multiplier — mounted units need more room (radius / footman radius). */
-export function layoutSlots(kind: FormationKind, count: number, scale = 1): Slot[] {
+/** Formations whose frontage can be redrawn by dragging a battle line. */
+export const WIDTH_FORMATIONS: Record<FormationKind, boolean> = {
+  line: true,
+  wall: true,
+  loose: true,
+  column: false,
+  square: false,
+  wedge: false,
+  circle: false,
+};
+
+/** Spacing between files for a formation (before unit-size scaling). */
+export function formationSpacing(kind: FormationKind): number {
+  if (kind === 'wall') return WALL_LATERAL;
+  if (kind === 'loose') return LOOSE_SPACING;
+  return SPACING;
+}
+
+/**
+ * scale: spacing multiplier — mounted units need more room (radius / footman radius).
+ * cols: frontage override (files across) for width-adjustable formations.
+ */
+export function layoutSlots(kind: FormationKind, count: number, scale = 1, cols?: number): Slot[] {
   const slots = ((): Slot[] => {
     switch (kind) {
       case 'line':
-        return grid(count, Math.ceil(count / 3));
+        return grid(count, cols ?? Math.ceil(count / 3));
       case 'column':
         return grid(count, 4);
       case 'square':
@@ -68,9 +89,9 @@ export function layoutSlots(kind: FormationKind, count: number, scale = 1): Slot
       case 'wedge':
         return wedge(count);
       case 'wall':
-        return grid(count, Math.ceil(count / 2), WALL_LATERAL, WALL_DEPTH);
+        return grid(count, cols ?? Math.ceil(count / 2), WALL_LATERAL, WALL_DEPTH);
       case 'loose':
-        return grid(count, Math.ceil(count / 3), LOOSE_SPACING, LOOSE_SPACING);
+        return grid(count, cols ?? Math.ceil(count / 3), LOOSE_SPACING, LOOSE_SPACING);
       case 'circle':
         return circleSlots(count);
     }

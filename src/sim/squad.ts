@@ -4,6 +4,7 @@ import {
   FORMATION_JITTER,
   FORMATION_SPEED,
   layoutSlots,
+  WIDTH_FORMATIONS,
   type FormationKind,
   type Slot,
 } from './formation';
@@ -122,6 +123,10 @@ export class Squad {
   facing: number;
   // Current formation speed, px/s — ramps up and down with momentum.
   speed = 0;
+  // Frontage override (files across) from a dragged battle line; null = formation default.
+  widthCols: number | null = null;
+  // Direction to front toward once the move completes (from a dragged battle line).
+  arrivalFacing: number | null = null;
   private readonly initialCount: number;
   private slots: Slot[];
   private orderX: number | null = null;
@@ -130,6 +135,8 @@ export class Squad {
   private flowTargetX = 0;
   private flowTargetY = 0;
   private attackTarget: Squad | null = null;
+  // Flank order: attack this squad automatically once the move waypoint is reached.
+  private pendingAttack: Squad | null = null;
 
   constructor(
     team: number,
@@ -187,8 +194,10 @@ export class Squad {
     return this.unitType.radius / 7;
   }
 
-  orderMove(x: number, y: number, world: World): void {
+  orderMove(x: number, y: number, world: World, facing: number | null = null): void {
     this.attackTarget = null;
+    this.pendingAttack = null;
+    this.arrivalFacing = facing;
     this.orderX = x;
     this.orderY = y;
     this.rebuildFlow(world);
@@ -197,9 +206,63 @@ export class Squad {
   /** March on an enemy squad and keep pursuing it as it moves. */
   orderAttack(target: Squad, world: World): void {
     this.attackTarget = target;
+    this.pendingAttack = null;
+    this.arrivalFacing = null;
     this.orderX = target.anchorX;
     this.orderY = target.anchorY;
     this.rebuildFlow(world);
+  }
+
+  /** Swing wide around an enemy squad and hit it from the side once in position. */
+  orderFlank(target: Squad, world: World): void {
+    const dx = target.anchorX - this.anchorX;
+    const dy = target.anchorY - this.anchorY;
+    const len = Math.hypot(dx, dy) || 1;
+    const dirX = dx / len;
+    const dirY = dy / len;
+    let perpX = -dirY;
+    let perpY = dirX;
+    // Swing around whichever side keeps the waypoint on the map.
+    let wx = target.anchorX + dirX * 200 + perpX * 320;
+    let wy = target.anchorY + dirY * 200 + perpY * 320;
+    if (wx < 60 || wx > world.widthPx - 60 || wy < 60 || wy > world.heightPx - 60) {
+      perpX = -perpX;
+      perpY = -perpY;
+      wx = target.anchorX + dirX * 200 + perpX * 320;
+      wy = target.anchorY + dirY * 200 + perpY * 320;
+    }
+    wx = Math.min(world.widthPx - 60, Math.max(60, wx));
+    wy = Math.min(world.heightPx - 60, Math.max(60, wy));
+    this.orderMove(wx, wy, world);
+    this.pendingAttack = target;
+  }
+
+  /** Stop everything: stand fast where the squad is now. */
+  halt(): void {
+    this.orderX = null;
+    this.orderY = null;
+    this.attackTarget = null;
+    this.pendingAttack = null;
+    this.arrivalFacing = null;
+    this.charging = false;
+  }
+
+  /** Redraw the frontage (files across) for width-adjustable formations. */
+  setWidth(cols: number): void {
+    if (!WIDTH_FORMATIONS[this.formation]) return;
+    this.widthCols = Math.min(this.soldiers.length, Math.max(2, Math.round(cols)));
+    this.rebuildSlots();
+  }
+
+  private rebuildSlots(): void {
+    this.slots = layoutSlots(
+      this.formation,
+      this.soldiers.length,
+      this.slotScale(),
+      this.widthCols ?? undefined,
+    );
+    for (const slot of this.slots) slot.f = this.facing;
+    this.reassignSlots();
   }
 
   isAttacking(target?: Squad): boolean {
@@ -217,11 +280,11 @@ export class Squad {
   }
 
   /** Pivot the whole formation toward an angle — used to front toward threats while idle. */
-  faceToward(angle: number, dt: number): void {
+  faceToward(angle: number, dt: number, rateMult = 0.5): void {
     let diff = angle - this.facing;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    const maxTurn = TURN_RATE * 0.5 * dt;
+    const maxTurn = TURN_RATE * rateMult * dt;
     this.facing += Math.abs(diff) <= maxTurn ? diff : Math.sign(diff) * maxTurn;
   }
 
@@ -237,9 +300,8 @@ export class Squad {
     this.formation = kind;
     const def = DEFAULT_STANCE[kind];
     if (def) this.stance = def;
-    this.slots = layoutSlots(kind, this.soldiers.length, this.slotScale());
-    for (const slot of this.slots) slot.f = this.facing;
-    this.reassignSlots();
+    this.widthCols = null;
+    this.rebuildSlots();
   }
 
   // Greedy nearest-soldier-to-slot matching, front slots first. Not globally optimal,
@@ -295,7 +357,17 @@ export class Squad {
   }
 
   tick(dt: number, world: World, getSoldier: SoldierLookup): void {
-    if (this.state === 'steady') this.moveAnchor(dt, world);
+    if (this.state === 'steady') {
+      this.moveAnchor(dt, world);
+      // After a battle-line order completes, wheel onto the ordered facing.
+      if (this.orderX === null && this.arrivalFacing !== null) {
+        this.faceToward(this.arrivalFacing, dt, 2);
+        let diff = this.arrivalFacing - this.facing;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        if (Math.abs(diff) < 0.04) this.arrivalFacing = null;
+      }
+    }
     this.updateSlotFacings(dt);
     this.steerSoldiers(dt, world, getSoldier);
   }
@@ -308,11 +380,7 @@ export class Squad {
       const s = this.soldiers[i]!;
       if (s.hp <= 0 || s.escaped) this.soldiers.splice(i, 1);
     }
-    if (this.soldiers.length > 0) {
-      this.slots = layoutSlots(this.formation, this.soldiers.length, this.slotScale());
-      for (const slot of this.slots) slot.f = this.facing;
-      this.reassignSlots();
-    }
+    if (this.soldiers.length > 0) this.rebuildSlots();
     const losses = 1 - this.soldiers.length / this.initialCount;
     if (this.state !== 'fleeing' && losses >= SHATTER_CASUALTY_FRACTION) {
       this.breakAndRun('fleeing');
@@ -396,6 +464,12 @@ export class Squad {
         this.orderX = null;
         this.orderY = null;
         // Keep the flow field: stragglers still stuck behind trees use it to find their slots.
+        // Flank order: waypoint reached — now hit the target from this side.
+        if (this.pendingAttack && this.pendingAttack.soldiers.length > 0 && this.pendingAttack.state === 'steady') {
+          const t = this.pendingAttack;
+          this.orderAttack(t, world);
+          return;
+        }
       }
       this.speed = 0;
       this.charging = false;

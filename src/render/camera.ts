@@ -18,6 +18,9 @@ export class Camera {
     private readonly world: World,
     private readonly stage: Container,
     canvas: HTMLCanvasElement,
+    // Right-drag pans only when this allows it (with squads selected, right-drag
+    // draws a battle line instead). Middle-drag always pans.
+    private readonly canRightPan: () => boolean = () => true,
   ) {
     this.x = world.widthPx / 2;
     this.y = world.heightPx / 2;
@@ -28,7 +31,7 @@ export class Camera {
 
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button === 1 || e.button === 2) {
+      if (e.button === 1 || (e.button === 2 && this.canRightPan())) {
         this.dragging = true;
         this.lastPointer = { x: e.clientX, y: e.clientY };
       }

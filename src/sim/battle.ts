@@ -162,7 +162,7 @@ export class Battle {
   private idleFacing(dt: number): void {
     const range2 = 700 * 700;
     for (const squad of this.squads) {
-      if (!squad.isIdle() || squad.soldiers.length === 0) continue;
+      if (!squad.isIdle() || squad.soldiers.length === 0 || squad.arrivalFacing !== null) continue;
       let best: Squad | null = null;
       let bestD2 = range2;
       for (const other of this.squads) {
