@@ -243,6 +243,36 @@ export class World {
   }
 
   /**
+   * Smoothly interpolated "wetness" for RENDERING only (0 = dry, 0.55 =
+   * shallow, 1 = deep) — the gameplay `water` grid stays a hard per-cell
+   * classification for blocking/pathfinding, unchanged. This just lets the
+   * renderer blend a river's color across a cell boundary instead of
+   * stepping abruptly, so the shoreline reads as a curve, not a staircase.
+   */
+  waterAt(x: number, y: number): number {
+    return this.bilinear(this.water, x, y, (v) => (v === 2 ? 1 : v === 1 ? 0.55 : 0));
+  }
+
+  /** Smoothly interpolated cliff strength (0..1) for rendering, same idea as waterAt. */
+  cliffAt(x: number, y: number): number {
+    return this.bilinear(this.cliff, x, y, (v) => v);
+  }
+
+  private bilinear(arr: Uint8Array, x: number, y: number, map: (v: number) => number): number {
+    const gx = Math.min(GRID_W - 1.001, Math.max(0, x / CELL - 0.5));
+    const gy = Math.min(GRID_H - 1.001, Math.max(0, y / CELL - 0.5));
+    const x0 = Math.floor(gx);
+    const y0 = Math.floor(gy);
+    const fx = gx - x0;
+    const fy = gy - y0;
+    const at = (cx: number, cy: number) =>
+      map(arr[Math.min(GRID_H - 1, cy) * GRID_W + Math.min(GRID_W - 1, cx)]!);
+    const top = at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx;
+    const bot = at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx;
+    return top * (1 - fy) + bot * fy;
+  }
+
+  /**
    * Slope speed multiplier for moving from (x, y) in direction (dirX, dirY):
    * uphill < 1, downhill > 1. Feeds charge impact power automatically.
    */

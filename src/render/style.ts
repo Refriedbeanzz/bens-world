@@ -91,6 +91,7 @@ export function wobblyLine(
   y1: number,
   width: number,
   color: number,
+  alpha = 1,
 ): void {
   const segs = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / 6));
   const pts: [number, number][] = [[x0, y0]];
@@ -105,7 +106,7 @@ export function wobblyLine(
     const [bx, by] = pts[i]!;
     g.moveTo(ax, ay)
       .lineTo(bx, by)
-      .stroke({ width: width * rng.range(0.8, 1.15), color });
+      .stroke({ width: width * rng.range(0.8, 1.15), color, alpha });
   }
 }
 

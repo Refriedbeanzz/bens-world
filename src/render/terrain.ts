@@ -1,7 +1,7 @@
 import { Container, Graphics, RenderTexture, Sprite, type Renderer } from 'pixi.js';
 import { Rng } from '../sim/rng';
 import { CELL, GRID_W, GRID_H, type World } from '../sim/world';
-import { OUTLINE, paintedShade, specular, wobblyCircle } from './style';
+import { OUTLINE, paintedShade, specular, wobblyCircle, wobblyLine } from './style';
 import { drawPlant, drawRock, drawTree, PLANT_SPECIES, ROCK_SPECIES, TREE_SPECIES } from './naturalAssets';
 
 // Smooth value noise: random values on a coarse lattice, bilinearly interpolated.
@@ -160,8 +160,6 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   const SUB = CELL / 2;
   for (let py = SUB / 2; py < world.heightPx; py += SUB) {
     for (let px = SUB / 2; px < world.widthPx; px += SUB) {
-      const cx = Math.floor(px / CELL);
-      const cy = Math.floor(py / CELL);
       const u = px / world.widthPx;
       const v = py / world.heightPx;
       const h = world.heightAt(px, py);
@@ -172,26 +170,30 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       );
       const bright = (0.82 + h * 0.36) * sun;
 
-      let color: number;
-      const water = world.water[cy * GRID_W + cx];
-      if (water === 2) {
-        color = shade(lerpColor(0x1d3c58, 0x2a5070, grassNoise(u, v)), 0.95);
-      } else if (water === 1) {
-        color = shade(lerpColor(0x3f6e80, 0x568897, grassNoise(u, v)), 1.0);
-      } else if (world.cliff[cy * GRID_W + cx] === 1) {
-        color = shade(lerpColor(CLIFF_DARK, CLIFF_COLOR, speckle.next()), 0.75 + h * 0.45);
-      } else {
-        color = lerpColor(pal.dark, pal.light, grassNoise(u, v));
-        // fine octave: subtle mottling within a coarse patch, not a hard step
-        color = lerpColor(color, pal.light, (fineNoise(u, v) - 0.5) * 0.16);
-        const dirtT = dirtLeanAt(px, py);
-        if (dirtT > 0) color = lerpColor(color, pal.dirt, dirtT * 0.85);
-        color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.1);
-        // Elevation wash: high ground warms toward a sunlit tan, so a hill
-        // reads at a glance instead of needing the hachure ink up close.
-        const hillWarm = Math.min(1, Math.max(0, (h - 0.56) / 0.32));
-        if (hillWarm > 0) color = lerpColor(color, 0xcdbb78, hillWarm * 0.22);
-        color = shade(color, bright * 0.86);
+      // Land color always computed first — water and cliff are blended ON
+      // TOP of it by continuous strength (bilinear, not a per-cell switch),
+      // so a shoreline or cliff edge reads as a smooth curve/gradient
+      // instead of stair-stepping at the 32px grid.
+      let color = lerpColor(pal.dark, pal.light, grassNoise(u, v));
+      color = lerpColor(color, pal.light, (fineNoise(u, v) - 0.5) * 0.16); // fine octave mottling
+      const dirtT = dirtLeanAt(px, py);
+      if (dirtT > 0) color = lerpColor(color, pal.dirt, dirtT * 0.85);
+      color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.1);
+      const hillWarm = Math.min(1, Math.max(0, (h - 0.56) / 0.32));
+      if (hillWarm > 0) color = lerpColor(color, 0xcdbb78, hillWarm * 0.22); // elevation wash
+      color = shade(color, bright * 0.86);
+
+      const cliffT = world.cliffAt(px, py);
+      if (cliffT > 0.02) {
+        const cliffColor = shade(lerpColor(CLIFF_DARK, CLIFF_COLOR, speckle.next()), 0.75 + h * 0.45);
+        color = lerpColor(color, cliffColor, Math.min(1, cliffT * 1.5));
+      }
+      const wetness = world.waterAt(px, py);
+      if (wetness > 0.02) {
+        const shallow = shade(lerpColor(0x3f6e80, 0x568897, grassNoise(u, v)), 1.0);
+        const deep = shade(lerpColor(0x1d3c58, 0x2a5070, grassNoise(u, v)), 0.95);
+        const waterColor = wetness < 0.55 ? lerpColor(color, shallow, wetness / 0.55) : lerpColor(shallow, deep, (wetness - 0.55) / 0.45);
+        color = lerpColor(color, waterColor, Math.min(1, wetness * 1.35));
       }
       g.rect(px - SUB / 2, py - SUB / 2, SUB, SUB).fill(color);
     }
@@ -404,8 +406,10 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
         const ny = cy + dy;
         const neighborCliff = nx >= 0 && ny >= 0 && nx < GRID_W && ny < GRID_H && world.cliff[ny * GRID_W + nx] === 1;
         if (neighborCliff) continue; // interior seam between two cliff cells — no edge needed
-        g.moveTo(ex0, ey0).lineTo(ex1, ey1).stroke({ width: 2.2, color: CLIFF_EDGE, alpha: 0.6 });
-        g.moveTo(ex0, ey0).lineTo(ex1, ey1).stroke({ width: 0.8, color: CLIFF_STRATA_LIGHT, alpha: 0.3 });
+        // Wobbly, not ruler-straight — a grid-aligned edge is exactly what
+        // makes a cliff (or river bank) read as blocky/square.
+        wobblyLine(g, cliffRng, ex0, ey0, ex1, ey1, 2.2, CLIFF_EDGE, 0.6);
+        wobblyLine(g, cliffRng, ex0, ey0, ex1, ey1, 0.8, CLIFF_STRATA_LIGHT, 0.3);
       }
       // rock-face strata: a few roughly parallel bands within the cell
       for (let i = 0; i < 3; i++) {
@@ -461,7 +465,7 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
         ];
         for (const [dx, dy, ex0, ey0, ex1, ey1] of shoreEdges) {
           if (!isOpenGround(world, cx + dx, cy + dy)) continue;
-          g.moveTo(ex0, ey0).lineTo(ex1, ey1).stroke({ width: 1.4, color: 0xdcecec, alpha: 0.3 });
+          wobblyLine(g, waterRng, ex0, ey0, ex1, ey1, 1.4, 0xdcecec, 0.3);
         }
       }
     }
