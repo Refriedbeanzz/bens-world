@@ -58,6 +58,24 @@ function shade(c: number, f: number): number {
 const LIGHT_A = -2.35;
 const DARK_A = 0.79;
 
+// --- Elevation contours ---
+// One iso-line per 4.5% of the 0..1 height range, drawn at a fixed thickness
+// in PIXELS rather than a fixed tolerance in height: a height tolerance would
+// smear into a wide wash on gentle ground and vanish to nothing on a steep
+// face, whereas dividing by the local gradient keeps every line the same
+// weight wherever it lands. Shared by the baked ground pass and the ink
+// overlay so both draw exactly the same set of bands.
+const CONTOUR_INTERVAL = 0.045;
+const CONTOUR_BAKE = 0x2e2416;
+// Below this the ground is dead flat and has no band worth drawing; above it
+// consecutive bands land within a few px of each other and read as mud.
+const CONTOUR_GRAD_MIN = 0.00012;
+const CONTOUR_GRAD_MAX = 0.006;
+/** Every 4th band is an "index contour" — heavier, the way a real map weights its major lines. */
+function isIndexContour(level: number): boolean {
+  return (((level % 4) + 4) % 4) === 0;
+}
+
 function isOpenGround(world: World, cx: number, cy: number): boolean {
   if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return false;
   const i = cy * GRID_W + cx;
@@ -176,12 +194,18 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       const u = px / world.widthPx;
       const v = py / world.heightPx;
       const h = world.heightAt(px, py);
-      const d = 14;
-      const sun = Math.min(
-        1.22,
-        Math.max(0.78, 1 + (world.heightAt(px - d, py - d) - world.heightAt(px + d, py + d)) * 2.2),
-      );
-      const bright = (0.82 + h * 0.36) * sun;
+      // Real elevation gradient, reused for both the hillshade and the baked
+      // contour lines below.
+      const d = 9;
+      const ghx = (world.heightAt(px + d, py) - world.heightAt(px - d, py)) / (2 * d);
+      const ghy = (world.heightAt(px, py + d) - world.heightAt(px, py - d)) / (2 * d);
+      const gmag = Math.hypot(ghx, ghy);
+      // Hillshade lit from the northwest, at a stronger gain than before: the
+      // old settings left slopes reading almost flat, which is why elevation
+      // was invisible without ink on top of it. The contour lines mark the
+      // bands; this makes the ground between them actually look tilted.
+      const sun = Math.min(1.34, Math.max(0.7, 1 - (ghx + ghy) * 85));
+      const bright = (0.78 + h * 0.48) * sun;
 
       // Land color always computed first — water and cliff are blended ON
       // TOP of it by continuous strength (bilinear, not a per-cell switch),
@@ -194,6 +218,26 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.1);
       const hillWarm = Math.min(1, Math.max(0, (h - 0.56) / 0.32));
       if (hillWarm > 0) color = lerpColor(color, 0xcdbb78, hillWarm * 0.22); // elevation wash
+
+      // Contour lines baked straight into the ground pixels. The ink overlay
+      // further down adds the hand-drawn character, but a thin Graphics
+      // stroke is sub-pixel once the whole 2560x1600 field is scaled to fit a
+      // screen — which is exactly how the first attempt at this vanished.
+      // Painting the band into the texture instead means it survives at any
+      // zoom, and being computed per-pixel it is continuous with no sampling
+      // gaps.
+      if (gmag > CONTOUR_GRAD_MIN && gmag < CONTOUR_GRAD_MAX) {
+        const band = h / CONTOUR_INTERVAL;
+        const level = Math.round(band);
+        const distPx = (Math.abs(band - level) * CONTOUR_INTERVAL) / gmag;
+        const index = isIndexContour(level);
+        const halfW = index ? 2.8 : 1.8;
+        if (distPx < halfW) {
+          const t = (1 - distPx / halfW) * (index ? 0.34 : 0.22);
+          color = lerpColor(color, CONTOUR_BAKE, t);
+        }
+      }
+
       color = shade(color, bright * 0.99); // vivid saturated grass, not muddied down
 
       const cliffT = world.cliffAt(px, py);
@@ -433,6 +477,46 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
     }
   }
 
+  // Contour ink: hand-drawn strokes riding on top of the baked bands above.
+  // The bake carries the legibility at any zoom; this pass gives the lines
+  // the wobbly inked character the rest of the art has, plus a pale lip on
+  // the uphill side so a contour reads as ground catching light rather than a
+  // decal laid on the grass.
+  const contourRng = new Rng(world.seed ^ 0x2b7f45);
+  const CONTOUR_INK = lerpColor(0x3a2e1c, pal.dirt, 0.28);
+  const CONTOUR_LIGHT = lerpColor(0xe8dcac, pal.light, 0.35);
+  const CONTOUR_SPACING = 5; // sample step, px
+  const CONTOUR_HALF_PX = 2.2; // how far off a band a stroke may still be placed
+  for (let py = CONTOUR_SPACING / 2; py < world.heightPx; py += CONTOUR_SPACING) {
+    for (let px = CONTOUR_SPACING / 2; px < world.widthPx; px += CONTOUR_SPACING) {
+      const jx = px + contourRng.range(-1.2, 1.2);
+      const jy = py + contourRng.range(-1.2, 1.2);
+      if (!isOpenGround(world, Math.floor(jx / CELL), Math.floor(jy / CELL))) continue;
+      const d = 5;
+      const gx = (world.heightAt(jx + d, jy) - world.heightAt(jx - d, jy)) / (2 * d);
+      const gy = (world.heightAt(jx, jy + d) - world.heightAt(jx, jy - d)) / (2 * d);
+      const gmag = Math.hypot(gx, gy);
+      if (gmag < CONTOUR_GRAD_MIN || gmag > CONTOUR_GRAD_MAX) continue;
+      const band = world.heightAt(jx, jy) / CONTOUR_INTERVAL;
+      const level = Math.round(band);
+      const distPx = (Math.abs(band - level) * CONTOUR_INTERVAL) / gmag;
+      if (distPx > CONTOUR_HALF_PX) continue;
+      const cxr = -gy / gmag; // along the contour (perpendicular to the slope)
+      const cyr = gx / gmag;
+      const len = contourRng.range(6, 10);
+      const x0c = jx - cxr * len * 0.5;
+      const y0c = jy - cyr * len * 0.5;
+      const x1c = jx + cxr * len * 0.5;
+      const y1c = jy + cyr * len * 0.5;
+      const index = isIndexContour(level);
+      const fade = 1 - distPx / CONTOUR_HALF_PX; // soft edges, not a hard band
+      wobblyLine(g, contourRng, x0c, y0c, x1c, y1c, index ? 2.6 : 1.6, CONTOUR_INK, fade * (index ? 0.5 : 0.32));
+      const ux = (gx / gmag) * 2.2;
+      const uy = (gy / gmag) * 2.2;
+      wobblyLine(g, contourRng, x0c + ux, y0c + uy, x1c + ux, y1c + uy, 1.1, CONTOUR_LIGHT, fade * 0.26);
+    }
+  }
+
   // Hill hachures: Inkarnate-style clustered contour ink strokes marking
   // raised ground. Flat terrain (plains, valley floors) gets none at all;
   // hachures thicken and stack toward a hilltop, tracing its contour lines
@@ -452,7 +536,11 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       if (!isOpenGround(world, cx, cy)) continue;
       const h = world.heightAt(jx, jy);
       const hillT = Math.min(1, Math.max(0, (h - 0.56) / 0.3));
-      if (hillT < 0.04) continue; // flat ground: no marks at all
+      // Only genuine crests now. The contour pass above already inks every
+      // height band across the whole map, so hachures reaching down into
+      // gentle ground would just crosshatch over those lines and muddy them;
+      // up here they read as the extra weight piled on a summit.
+      if (hillT < 0.35) continue;
 
       const d = 12;
       const gx = world.heightAt(jx + d, jy) - world.heightAt(jx - d, jy);
@@ -486,18 +574,6 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
           });
       }
 
-      // A faint SECOND pass at a much lower elevation threshold — gentle
-      // undulation gets a hint of contour linework too, not just real hills,
-      // so the ground carries ink texture everywhere instead of only on the
-      // handful of tall features.
-      const softT = Math.min(1, Math.max(0, (h - 0.44) / 0.14)) * (1 - hillT);
-      if (softT > 0.1) {
-        const x0 = jx - cxr * 5;
-        const y0 = jy - cyr * 5;
-        const x1 = jx + cxr * 5;
-        const y1 = jy + cyr * 5;
-        g.moveTo(x0, y0).lineTo(x1, y1).stroke({ width: 0.5, color: HACH_INK, alpha: softT * 0.16 });
-      }
     }
   }
 

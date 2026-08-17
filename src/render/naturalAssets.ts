@@ -90,32 +90,191 @@ function drawRootFlare(g: Graphics, rng: Rng, x: number, y: number, tier: TreeTi
   return trunkR * 22;
 }
 
+/**
+ * One limb: a gently bending, tapering run drawn as short round-capped
+ * segments, each laid down as a dark under-stroke with a lighter bark core on
+ * top — the same outline-plus-fill logic the rest of the art uses, at branch
+ * scale. Returns the tip and its heading so a caller can fork from it.
+ */
+function limbRun(
+  g: Graphics,
+  rng: Rng,
+  x: number,
+  y: number,
+  angle: number,
+  len: number,
+  w0: number,
+  w1: number,
+  species: TreeSpecies,
+  shadow: boolean,
+): [number, number, number] {
+  const segs = Math.max(2, Math.round(len / 5));
+  const bend = rng.range(-0.55, 0.55) / segs; // one steady curve, not random noise
+  let cx = x;
+  let cy = y;
+  let a = angle;
+  for (let i = 0; i < segs; i++) {
+    a += bend + rng.range(-0.06, 0.06);
+    const step = len / segs;
+    const nx = cx + Math.cos(a) * step;
+    const ny = cy + Math.sin(a) * step;
+    const w = w0 + (w1 - w0) * ((i + 1) / segs);
+    if (shadow) {
+      g.moveTo(cx, cy).lineTo(nx, ny).stroke({ width: w + 1.4, color: 0x000000, alpha: 0.13, cap: 'round' });
+    } else {
+      g.moveTo(cx, cy).lineTo(nx, ny).stroke({ width: w + 0.9, color: OUTLINE, alpha: 0.8, cap: 'round' });
+      g.moveTo(cx, cy).lineTo(nx, ny).stroke({ width: w, color: species.bark, cap: 'round' });
+      // A hairline of lit bark along the top-left of thicker limbs — without
+      // it a branch is one flat grey value and reads as bent wire.
+      if (w > 1.3) {
+        const off = w * 0.26;
+        g.moveTo(cx + Math.cos(LIGHT_A) * off, cy + Math.sin(LIGHT_A) * off)
+          .lineTo(nx + Math.cos(LIGHT_A) * off, ny + Math.sin(LIGHT_A) * off)
+          .stroke({ width: w * 0.3, color: species.light, alpha: 0.5, cap: 'round' });
+      }
+    }
+    cx = nx;
+    cy = ny;
+  }
+  return [cx, cy, a];
+}
+
+/** A limb that forks into thinner limbs, recursively, until it runs out of depth. */
+function deadLimb(
+  g: Graphics,
+  rng: Rng,
+  x: number,
+  y: number,
+  angle: number,
+  len: number,
+  width: number,
+  depth: number,
+  species: TreeSpecies,
+  shadow: boolean,
+): void {
+  const [tx, ty, ta] = limbRun(g, rng, x, y, angle, len, width, width * 0.5, species, shadow);
+  if (depth <= 0 || len < 5) {
+    // Snapped-off end: a pale splintered nub where the twig broke.
+    if (rng.next() < 0.45 && !shadow) {
+      g.circle(tx, ty, Math.max(0.5, width * 0.45)).fill({ color: species.light, alpha: 0.65 });
+    }
+    return;
+  }
+  const forks = rng.next() < 0.25 ? 1 : 2;
+  const spread = rng.range(0.35, 0.8);
+  for (let i = 0; i < forks; i++) {
+    const sign = forks === 1 ? (rng.next() < 0.5 ? -1 : 1) : i === 0 ? -1 : 1;
+    deadLimb(
+      g,
+      rng,
+      tx,
+      ty,
+      ta + sign * spread * rng.range(0.6, 1.25),
+      len * rng.range(0.5, 0.72),
+      width * 0.62,
+      depth - 1,
+      species,
+      shadow,
+    );
+  }
+}
+
+/** The full limb structure of one snag, replayable from a seed so the shadow pass matches the tree exactly. */
+function snagLimbs(
+  g: Graphics,
+  seed: number,
+  x: number,
+  y: number,
+  r: number,
+  trunkR: number,
+  tier: TreeTier,
+  species: TreeSpecies,
+  shadow: boolean,
+): void {
+  const rng = new Rng(seed);
+  const limbs = tier === 'large' ? rng.int(4, 5) : tier === 'medium' ? rng.int(3, 4) : 3;
+  const w0 = tier === 'large' ? 2.7 : tier === 'medium' ? 2.1 : 1.5;
+  const base = rng.range(0, Math.PI * 2);
+  for (let i = 0; i < limbs; i++) {
+    // One limb per angular sector, jittered inside it — keeps two limbs from
+    // stacking on top of each other while still looking unplanned. Roughly a
+    // third come out stubby: evenly long limbs were what made the old version
+    // read as a starfish.
+    const a = base + ((i + rng.range(0.1, 0.9)) / limbs) * Math.PI * 2;
+    const len = r * (rng.next() < 0.35 ? rng.range(0.34, 0.55) : rng.range(0.7, 1.0));
+    const start = trunkR * 0.55;
+    deadLimb(g, rng, x + Math.cos(a) * start, y + Math.sin(a) * start, a, len, w0, 2, species, shadow);
+  }
+}
+
+/**
+ * A bare standing snag seen from above. The old version fired 4-6 straight
+ * spokes of constant width out of a single point at evenly spaced angles,
+ * which read as an asterisk rather than a tree; this gives each limb its own
+ * length, a bend, a taper, and a fork tree of its own, casts a shadow shaped
+ * like the actual branches instead of a solid ellipse a bare tree would never
+ * throw, and caps the middle with a broken stump so the limbs emerge from
+ * under something rather than converging on a bare point.
+ */
+function drawDeadSnag(
+  g: Graphics,
+  rng: Rng,
+  x: number,
+  y: number,
+  r: number,
+  tier: TreeTier,
+  species: TreeSpecies,
+): void {
+  const trunkR = (tier === 'large' ? 0.24 : tier === 'medium' ? 0.16 : 0.11) * 22;
+  const limbSeed = rng.int(0, 0x7ffffffe);
+  // Shadow first, offset away from the light, replayed from the same seed so
+  // it is genuinely this tree's own silhouette.
+  const sx = -Math.cos(LIGHT_A) * r * 0.2;
+  const sy = -Math.sin(LIGHT_A) * r * 0.2;
+  g.ellipse(x + sx, y + sy, trunkR * 1.1, trunkR * 0.8).fill({ color: 0x000000, alpha: 0.15 });
+  snagLimbs(g, limbSeed, x + sx, y + sy, r, trunkR, tier, species, true);
+
+  drawRootFlare(g, rng, x, y, tier, species);
+  snagLimbs(g, limbSeed, x, y, r, trunkR, tier, species, false);
+
+  // A broken-off stump, not a disc: an irregular bark rim with a paler
+  // heartwood core and radial splits, so the middle reads as snapped timber
+  // rather than a rivet head holding the branches on.
+  const ring = (rad: number, jitter: number): number[] => {
+    const pts: number[] = [];
+    const n = 9;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const rr = rad * rng.range(1 - jitter, 1 + jitter);
+      pts.push(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
+    }
+    return pts;
+  };
+  smoothBlob(g, ring(trunkR * 0.95, 0.16), species.bark, species.barkDark, 1.1);
+  smoothBlob(g, ring(trunkR * 0.62, 0.2), lerpColor(species.bark, species.light, 0.45), species.barkDark, 0.6);
+  for (let i = 0; i < rng.int(2, 4); i++) {
+    const a = rng.range(0, Math.PI * 2);
+    g.moveTo(x, y)
+      .lineTo(x + Math.cos(a) * trunkR * 0.85, y + Math.sin(a) * trunkR * 0.85)
+      .stroke({ width: 0.7, color: species.barkDark, alpha: 0.75 });
+  }
+  paintedShade(g, x, y, trunkR * 0.7, LIGHT_A, DARK_A, 0xd8d0bc, 0x000000);
+  // Ivy/moss creeping up the stump instead of leaves — a dead tree with a
+  // green canopy was part of what read wrong before.
+  if (rng.next() < 0.5) grime(g, rng, x, y, trunkR * 1.1, rng.int(3, 5), [0x4a5c2a, 0x3a4620]);
+}
+
 /** Draw one tree at (x, y) with canopy radius r, sized tier, of the given species. */
 export function drawTree(g: Graphics, rng: Rng, x: number, y: number, r: number, species: TreeSpecies): void {
   const tier = treeTier(r);
   const hue = rng.range(-0.08, 0.1);
-  const trunkR = drawRootFlare(g, rng, x, y, tier, species);
 
   if (species.shape === 'dead') {
-    // Bare branching structure — no canopy, just forking limbs with a
-    // scattering of sparse leaf tufts near the tips.
-    const limbs = rng.int(4, 6);
-    for (let i = 0; i < limbs; i++) {
-      const a0 = (i / limbs) * Math.PI * 2 + rng.range(-0.3, 0.3);
-      const len0 = r * rng.range(0.7, 1.1);
-      const x1 = x + Math.cos(a0) * len0;
-      const y1 = y + Math.sin(a0) * len0;
-      wobblyLine(g, rng, x, y, x1, y1, 1.4, species.barkDark);
-      const a1 = a0 + rng.range(-0.7, 0.7);
-      const x2 = x1 + Math.cos(a1) * len0 * 0.5;
-      const y2 = y1 + Math.sin(a1) * len0 * 0.5;
-      wobblyLine(g, rng, x1, y1, x2, y2, 0.9, species.barkDark);
-      if (rng.next() < 0.4) {
-        wobblyCircle(g, rng, x2, y2, r * 0.14, lerpColor(species.dark, species.light, 0.5), OUTLINE, 0.5);
-      }
-    }
+    drawDeadSnag(g, rng, x, y, r, tier, species);
     return;
   }
+
+  const trunkR = drawRootFlare(g, rng, x, y, tier, species);
 
   if (species.shape === 'conifer' || species.shape === 'narrowConifer') {
     const narrow = species.shape === 'narrowConifer';
