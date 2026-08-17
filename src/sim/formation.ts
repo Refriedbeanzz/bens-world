@@ -20,6 +20,8 @@ export const FORMATION_SPEED: Record<FormationKind, number> = {
 export interface Slot {
   lateral: number;
   depth: number;
+  /** this slot's own current facing — lags the squad facing during turns so the shape curves */
+  f: number;
 }
 
 const SPACING = 22;
@@ -29,7 +31,18 @@ const WALL_DEPTH = 16;
 // Loose: open order — skirmish spread, roughly double normal elbow room.
 const LOOSE_SPACING = 38;
 
-/** scale: spacing multiplier — mounted units need more room (radius / footman radius). */
+// Formations that bend through turns (flanks and rear ranks lag the wheel).
+// Walls, columns, and squares march as rigid drilled blocks.
+export const FORMATION_CURVES: Record<FormationKind, boolean> = {
+  line: true,
+  wedge: true,
+  loose: true,
+  circle: true,
+  wall: false,
+  column: false,
+  square: false,
+};
+
 // How much of a soldier's personal slot-jitter each formation tolerates:
 // drilled-tight shapes suppress it, open order amplifies it.
 export const FORMATION_JITTER: Record<FormationKind, number> = {
@@ -42,6 +55,7 @@ export const FORMATION_JITTER: Record<FormationKind, number> = {
   circle: 0.6,
 };
 
+/** scale: spacing multiplier — mounted units need more room (radius / footman radius). */
 export function layoutSlots(kind: FormationKind, count: number, scale = 1): Slot[] {
   const slots = ((): Slot[] => {
     switch (kind) {
@@ -76,7 +90,7 @@ function grid(count: number, cols: number, lateralSpacing = SPACING, depthSpacin
     const row = Math.floor(i / cols);
     const col = i % cols;
     const inRow = Math.min(cols, count - row * cols);
-    slots.push({
+    slots.push({ f: 0,
       lateral: (col - (inRow - 1) / 2) * lateralSpacing,
       depth: row * depthSpacing,
     });
@@ -102,10 +116,10 @@ function circleSlots(count: number): Slot[] {
     const n = Math.max(1, Math.floor((2 * Math.PI * r) / SPACING));
     for (let i = 0; i < n && slots.length < count; i++) {
       const a = (i / n) * Math.PI * 2;
-      slots.push({ lateral: Math.cos(a) * r, depth: Math.sin(a) * r });
+      slots.push({ lateral: Math.cos(a) * r, depth: Math.sin(a) * r, f: 0 });
     }
   }
-  while (slots.length < count) slots.push({ lateral: 0, depth: 0 });
+  while (slots.length < count) slots.push({ lateral: 0, depth: 0, f: 0 });
   return slots;
 }
 
@@ -115,7 +129,7 @@ function wedge(count: number): Slot[] {
   while (slots.length < count) {
     const inRow = Math.min(row + 1, count - slots.length);
     for (let j = 0; j < inRow; j++) {
-      slots.push({
+      slots.push({ f: 0,
         lateral: (j - (inRow - 1) / 2) * SPACING * 1.25,
         depth: row * SPACING,
       });

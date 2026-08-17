@@ -1,5 +1,12 @@
 import { FlowField } from './flowfield';
-import { FORMATION_JITTER, FORMATION_SPEED, layoutSlots, type FormationKind, type Slot } from './formation';
+import {
+  FORMATION_CURVES,
+  FORMATION_JITTER,
+  FORMATION_SPEED,
+  layoutSlots,
+  type FormationKind,
+  type Slot,
+} from './formation';
 import {
   MELEE_PURSUE,
   SOLDIER_ACCEL,
@@ -42,6 +49,11 @@ const DEFAULT_STANCE: Partial<Record<FormationKind, Stance>> = {
 // toward a fight is quicker but still slower than open-field running.
 const FIGHTING_SPEED_MULT = 0.35;
 const SURGE_SPEED_MULT = 0.75;
+// Curved wheeling: each slot's facing chases the squad facing, and slots far
+// from the center chase slower — so a turning line bows through the wheel and
+// dresses straight afterward. Rigid formations (wall/column/square) skip this.
+const SLOT_TURN_BASE = 2.4; // rad/s for a slot at the anchor
+const SLOT_TURN_FALLOFF = 55; // px of offset that halves the turn speed
 
 export type SquadState = 'steady' | 'routing' | 'fleeing';
 export type SoldierLookup = (id: number) => Soldier | undefined;
@@ -139,6 +151,7 @@ export class Squad {
     this.facing = facing;
     this.initialCount = count;
     this.slots = layoutSlots(formation, count, this.slotScale());
+    for (const slot of this.slots) slot.f = facing;
     for (let i = 0; i < count; i++) {
       const [sx, sy] = this.slotWorld(i);
       const id = allocId();
@@ -225,6 +238,7 @@ export class Squad {
     const def = DEFAULT_STANCE[kind];
     if (def) this.stance = def;
     this.slots = layoutSlots(kind, this.soldiers.length, this.slotScale());
+    for (const slot of this.slots) slot.f = this.facing;
     this.reassignSlots();
   }
 
@@ -253,8 +267,11 @@ export class Squad {
   slotWorld(index: number): [number, number] {
     const slot = this.slots[index];
     if (!slot) return [this.anchorX, this.anchorY];
-    const fx = Math.cos(this.facing);
-    const fy = Math.sin(this.facing);
+    // Each slot rotates around the anchor by its OWN facing, which lags the
+    // squad facing during turns — that's what bends the shape through a wheel.
+    const f = FORMATION_CURVES[this.formation] ? slot.f : this.facing;
+    const fx = Math.cos(f);
+    const fy = Math.sin(f);
     // right-hand perpendicular of facing
     const rx = -fy;
     const ry = fx;
@@ -264,8 +281,22 @@ export class Squad {
     ];
   }
 
+  private updateSlotFacings(dt: number): void {
+    if (!FORMATION_CURVES[this.formation]) return;
+    for (const slot of this.slots) {
+      const offset = Math.abs(slot.lateral) + Math.abs(slot.depth);
+      const rate = SLOT_TURN_BASE / (1 + offset / SLOT_TURN_FALLOFF);
+      let diff = this.facing - slot.f;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      const maxTurn = rate * dt;
+      slot.f += Math.abs(diff) <= maxTurn ? diff : Math.sign(diff) * maxTurn;
+    }
+  }
+
   tick(dt: number, world: World, getSoldier: SoldierLookup): void {
     if (this.state === 'steady') this.moveAnchor(dt, world);
+    this.updateSlotFacings(dt);
     this.steerSoldiers(dt, world, getSoldier);
   }
 
@@ -279,6 +310,7 @@ export class Squad {
     }
     if (this.soldiers.length > 0) {
       this.slots = layoutSlots(this.formation, this.soldiers.length, this.slotScale());
+      for (const slot of this.slots) slot.f = this.facing;
       this.reassignSlots();
     }
     const losses = 1 - this.soldiers.length / this.initialCount;
