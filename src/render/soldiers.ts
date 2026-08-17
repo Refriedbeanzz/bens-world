@@ -80,8 +80,11 @@ function rigSpec(type: UnitType): RigSpec {
   const r = type.radius;
   switch (type.key) {
     case 'pikeman':
-      // both hands gripping the shaft carried along the right side
-      return { hl: [r * 1.0, r * 0.55], hr: [-r * 0.2, r * 0.72], anim: 'thrust' };
+      // Rear hand grips the butt (hr, at the shaft's local origin); forward
+      // hand (hl) sits further along the SAME shaft, ~16 units up from hr —
+      // matches where the shaft actually passes in HandR's own texture, so
+      // the two hands read as gripping one continuous pole, not two props.
+      return { hl: [r * 2.05, r * 0.72], hr: [-r * 0.2, r * 0.72], anim: 'thrust' };
     case 'archer':
       return { hl: [r * 1.0, -r * 0.35], hr: [r * 0.15, r * 0.5], anim: 'loose' };
     case 'crossbowman':
@@ -89,7 +92,8 @@ function rigSpec(type: UnitType): RigSpec {
     case 'knight':
       return { hl: [r * 0.6, -r * 0.7], hr: [r * 0.1, r * 0.8], anim: 'lance' };
     case 'cavalry':
-      return { hl: [r * 0.6, -r * 0.7], hr: [r * 0.1, r * 0.8], anim: 'swing' };
+      // A held spear thrusts, it doesn't swing like a sword.
+      return { hl: [r * 0.6, -r * 0.7], hr: [r * 0.1, r * 0.8], anim: 'thrust' };
     default:
       return { hl: [r * 0.2, -r * 1.0], hr: [r * 0.1, r * 1.05], anim: 'swing' };
   }
@@ -168,8 +172,10 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number, varia
     .stroke({ width: 0.8, color: OUTLINE });
   grainLines(g, rng, -r * 0.75, 0, r * 0.35, 0, r * 0.5, 4, OUTLINE, 0.14, 0.35);
 
-  // mail hauberk under everything, densely stippled (two interlocking rings of dots)
+  // mail hauberk under everything: a painted base coat first (so it reads as
+  // a rounded surface, not a flat disc), then the dot stipple on top
   wobblyCircle(g, rng, 0, 0, r * 1.02, STEEL_DARK, OUTLINE, 1.2);
+  paintedShade(g, 0, 0, r * 1.0, LIGHT_A, DARK_A, STEEL, SHADOW);
   for (let ring = 0; ring < 3; ring++) {
     const rr = r * (0.97 - ring * 0.06);
     const n = 24 - ring * 4;
@@ -419,6 +425,7 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number, vari
     .stroke({ width: 1, color: OUTLINE });
   wobblyLine(g, rng, -r * 0.85, -r * 0.62, r * 0.1, -r * 0.68, 0.5, t.trim);
   g.circle(-r * 0.35, -r * 0.65, 0.6).fill(STEEL).stroke({ width: 0.3, color: STEEL_DARK });
+  specular(g, -r * 0.35 + Math.cos(LIGHT_A) * 0.25, -r * 0.65 + Math.sin(LIGHT_A) * 0.25, 0.22, 0.5);
 
   // reins: bridle line from the head to the rider's forward hand
   wobblyLine(g, rng, r * 1.75, -r * 0.1, r * 0.55, -r * 0.32, 0.4, LEATHER);
@@ -550,6 +557,7 @@ function drawHandR(g: Graphics, rng: Rng, type: UnitType, team: number): void {
       wobblyCircle(g, rng, -5.6, 2.1, 0.5, STEEL_DARK, OUTLINE, 0.3); // trigger
       g.moveTo(6, -7).quadraticCurveTo(9.6, 0, 6, 7).stroke({ width: 1.8, color: STEEL });
       g.moveTo(6, -7).quadraticCurveTo(8.8, 0, 6, 7).stroke({ width: 0.5, color: STEEL_DARK }); // prod shading
+      specular(g, 8.4, -3, 0.35, 0.55); // prod glint
       g.circle(6, -7, 0.75).fill(STEEL_DARK);
       g.circle(6, 7, 0.75).fill(STEEL_DARK);
       g.moveTo(6, -7).lineTo(-0.5, 0).lineTo(6, 7).stroke({ width: 0.6, color: 0xd8cfae }); // string
@@ -638,7 +646,7 @@ function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number, variant:
       g.poly([-8.5, 0, -5.5, -3.1, 1.5, -3.5, 5.5, -1.8, 7, 0, 5.5, 1.8, 1.5, 3.5, -5.5, 3.1])
         .fill(t.cloth)
         .stroke({ width: 1.3, color: OUTLINE });
-      crescent(g, -0.5, 0, 5.5, LIGHT_A, 0.8, 1.6, HIGHLIGHT, 0.16);
+      paintedShade(g, -0.5, 0, 5.5, LIGHT_A, DARK_A, HIGHLIGHT, SHADOW);
       grainLines(g, rng, -1, 0, 5, 1.57, 6, 5, t.clothDark, 0.2, 0.3);
       rivets(g, -0.8, 0, 5.6, 8, t.trim);
       switch (variant % 4) {

@@ -6,8 +6,8 @@ import { Rng } from '../sim/rng';
 // unsteady inking hand (Norland-ish).
 
 export const OUTLINE = 0x1c150e;
-export const STEEL = 0x8a929c;
-export const STEEL_DARK = 0x555b62;
+export const STEEL = 0x6e757e;
+export const STEEL_DARK = 0x434850;
 export const WOOD = 0x6b4f2f;
 export const WOOD_DARK = 0x47331a;
 export const SKIN = 0xc09468;
