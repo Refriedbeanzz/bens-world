@@ -596,15 +596,22 @@ export class Squad {
         const jitter = FORMATION_JITTER[this.formation];
         slotX += s.jitterX * jitter;
         slotY += s.jitterY * jitter;
-        // Cohesion ladder: head for the slot; if rocks block that AND we're far from
-        // the squad, funnel toward the anchor (so everyone rounds terrain on the SAME
-        // side the formation took), or navigate solo by flow field if even the anchor
-        // is unreachable. Near the squad, just steer at the slot and let tangent
-        // dodging slide around the rock — funneling here deadlocked soldiers standing
-        // on the anchor when a rock sat between it and their slot.
         tx = slotX;
         ty = slotY;
-        if (!losPassable(world, s.x, s.y, slotX, slotY)) {
+        // A slot sitting IN the river/cliff, or across one, can never be reached
+        // directly: navigate by the squad's flow field (it knows the fords), or
+        // gather on the anchor as a last resort.
+        if (world.isHardAt(slotX, slotY) || !world.lineHardFree(s.x, s.y, slotX, slotY)) {
+          flowDir = this.flow?.direction(s.x, s.y) ?? null;
+          if (!flowDir) {
+            tx = this.anchorX;
+            ty = this.anchorY;
+          }
+        } else if (!losPassable(world, s.x, s.y, slotX, slotY)) {
+          // Rock-halo blockage only. Far from the squad, funnel toward the anchor
+          // (everyone rounds terrain on the SAME side); near it, steer straight and
+          // let tangent dodging slide around the rock — funneling near the anchor
+          // deadlocked soldiers when a rock sat between it and their slot.
           const anchorDist = Math.hypot(this.anchorX - s.x, this.anchorY - s.y);
           if (anchorDist > 90) {
             if (losPassable(world, s.x, s.y, this.anchorX, this.anchorY)) {
