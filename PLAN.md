@@ -34,7 +34,11 @@ animations, art style, pathfinding, formations, combat — then expand (more map
   stats, ranges, speeds, and behaviors (pike walls vs cavalry charges, crossbow reload vs bow rate).
 - **BW5 — Command UI**: select squads, issue move/attack/hold orders, formation switching,
   drag-to-set facing and width, order preview ghosts.
-- **BW6 — Art & polish**: soldier sprite animations (walk, attack, death), cohesive graphical
+- **BW6 — Terrain & maps**: elevation/slopes (uphill slows, high ground helps archers), ridges,
+  canyons, big rock fields, steppe/biome variety, multiple battlefields. Deliberately after unit
+  types — terrain is only tactically meaningful once archers/cavalry/pikes exist. The cell-based
+  world model (blocked/slow/cost flags) was built to absorb this without rework.
+- **BW7 — Art & polish**: soldier sprite animations (walk, attack, death), cohesive graphical
   style, battle effects (arrows, blood, dust), sound.
 - **Later**: more battlefields, battle setup screen, AI commander, multiplayer (lockstep over the
   deterministic sim).
