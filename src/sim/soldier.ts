@@ -34,4 +34,7 @@ export interface Soldier {
   escaped: boolean;
   // armed by a charge impact: the next swing deals bonus damage
   chargeBonus: boolean;
+  radius: number;
+  // seconds until this soldier can shoot again; -1 = hasn't nocked yet (staggered first volley)
+  reload: number;
 }

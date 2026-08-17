@@ -3,8 +3,9 @@ import { startLoop } from './core/loop';
 import { Battle } from './sim/battle';
 import type { FormationKind } from './sim/formation';
 import type { Squad } from './sim/squad';
+import type { Stance } from './sim/squad';
 import { Camera } from './render/camera';
-import { SoldierLayer } from './render/soldiers';
+import { drawProjectiles, SoldierLayer } from './render/soldiers';
 import { buildTerrainSprite, buildObstacleLayer } from './render/terrain';
 
 const MAP_SEED = 20260816;
@@ -20,6 +21,12 @@ const FORMATION_KEYS: Record<string, FormationKind> = {
 };
 
 const DRAG_THRESHOLD = 8; // px of mouse travel before a click becomes a box-select
+
+const STANCE_KEYS: Record<string, Stance> = {
+  z: 'defensive',
+  x: 'balanced',
+  c: 'offensive',
+};
 
 async function boot(): Promise<void> {
   const app = new Application();
@@ -53,6 +60,9 @@ async function boot(): Promise<void> {
 
   const soldierLayer = new SoldierLayer(app.renderer, battle);
   stage.addChild(soldierLayer.container);
+
+  const projectileLayer = new Graphics();
+  stage.addChild(projectileLayer);
 
   // Trees/rocks draw above soldiers so troops pass "under" the canopy.
   stage.addChild(buildObstacleLayer(world));
@@ -190,6 +200,11 @@ async function boot(): Promise<void> {
       }
       return;
     }
+    const stance = STANCE_KEYS[e.key.toLowerCase()];
+    if (stance && !e.ctrlKey) {
+      for (const squad of selected) squad.stance = stance;
+      return;
+    }
     const kind = FORMATION_KEYS[e.key];
     if (kind) for (const squad of selected) squad.setFormation(kind);
   });
@@ -213,6 +228,7 @@ async function boot(): Promise<void> {
       }
 
       soldierLayer.update(battle, alpha);
+      drawProjectiles(projectileLayer, battle, alpha);
 
       // Dead or broken squads can't be commanded — drop them from the selection.
       for (const squad of [...selected]) {

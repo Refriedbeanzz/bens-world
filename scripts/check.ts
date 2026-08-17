@@ -61,12 +61,13 @@ function count(battle: Battle, team: number): number {
 console.log('S1: 2v2 meeting engagement');
 {
   const battle = new Battle(20260816);
+  const startTotal = count(battle, 0) + count(battle, 1);
   for (const squad of battle.squads) {
     const enemy = battle.squads.find((o) => o.team !== squad.team && o.soldiers.length > 0);
     if (enemy) squad.orderAttack(enemy, battle.world);
   }
   run(battle, 'S1', 120);
-  assert(count(battle, 0) + count(battle, 1) < 200, 'S1: no casualties after 120s of battle');
+  assert(count(battle, 0) + count(battle, 1) < startTotal, 'S1: no casualties after 120s of battle');
 }
 
 // S2: formation cycling while marching — slots must stay consistent through every change.
@@ -222,6 +223,51 @@ console.log('S5: forest march');
     worst = Math.max(worst, Math.hypot(s.x - sx, s.y - sy));
   }
   assert(worst < 60, `S5: stragglers left behind (worst ${worst.toFixed(0)}px from slot)`);
+}
+
+// S7: archery — arrows must kill at range before contact ever happens.
+console.log('S7: archers kill at range');
+{
+  const battle = new Battle(31415, [
+    { team: 0, count: 40, x: 0.38, y: 0.5, facing: 0, formation: 'loose', type: 'archer' },
+    { team: 1, count: 40, x: 0.5, y: 0.5, facing: Math.PI, formation: 'line', type: 'swordsman' },
+  ]);
+  const red = battle.squads[1]!;
+  // Hold red still: keep re-issuing a stand-fast move order at its own anchor.
+  const [rx, ry] = [red.anchorX, red.anchorY];
+  let casualtiesBeforeContact = 0;
+  for (let i = 0; i < 45 * 30; i++) {
+    if (i % 60 === 0) red.orderMove(rx, ry, battle.world);
+    battle.tick(DT);
+    battle.consumeDeaths();
+    if (!red.inMelee) casualtiesBeforeContact = 40 - red.soldiers.length;
+    if (i % 30 === 0) checkInvariants(battle, 'S7', i);
+  }
+  assert(casualtiesBeforeContact > 0, 'S7: arrows caused no casualties at range');
+}
+
+// S8: pikes vs cavalry — a knight charge into a pike wall must go badly for the knights.
+console.log('S8: pikes blunt a cavalry charge');
+{
+  const battle = new Battle(27182, [
+    { team: 0, count: 50, x: 0.45, y: 0.5, facing: 0, formation: 'wall', type: 'pikeman' },
+    { team: 1, count: 20, x: 0.6, y: 0.5, facing: Math.PI, formation: 'wedge', type: 'knight' },
+  ]);
+  const pikes = battle.squads[0]!;
+  const knights = battle.squads[1]!;
+  knights.orderAttack(pikes, battle.world);
+  knights.startCharge();
+  for (let i = 0; i < 120 * 30; i++) {
+    battle.tick(DT);
+    battle.consumeDeaths();
+    if (i % 30 === 0) checkInvariants(battle, 'S8', i);
+    if (knights.state !== 'steady' || knights.soldiers.length === 0) break;
+  }
+  assert(
+    knights.state !== 'steady' || knights.soldiers.length === 0,
+    `S8: knights were not broken by the pike wall (knights ${knights.soldiers.length}, pikes ${pikes.soldiers.length})`,
+  );
+  assert(pikes.state === 'steady', `S8: pike wall broke (pikes ${pikes.soldiers.length} left)`);
 }
 
 if (failures === 0) {

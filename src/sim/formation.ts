@@ -29,23 +29,33 @@ const WALL_DEPTH = 16;
 // Loose: open order — skirmish spread, roughly double normal elbow room.
 const LOOSE_SPACING = 38;
 
-export function layoutSlots(kind: FormationKind, count: number): Slot[] {
-  switch (kind) {
-    case 'line':
-      return grid(count, Math.ceil(count / 3));
-    case 'column':
-      return grid(count, 4);
-    case 'square':
-      return grid(count, Math.ceil(Math.sqrt(count)));
-    case 'wedge':
-      return wedge(count);
-    case 'wall':
-      return grid(count, Math.ceil(count / 2), WALL_LATERAL, WALL_DEPTH);
-    case 'loose':
-      return grid(count, Math.ceil(count / 3), LOOSE_SPACING, LOOSE_SPACING);
-    case 'circle':
-      return circleSlots(count);
+/** scale: spacing multiplier — mounted units need more room (radius / footman radius). */
+export function layoutSlots(kind: FormationKind, count: number, scale = 1): Slot[] {
+  const slots = ((): Slot[] => {
+    switch (kind) {
+      case 'line':
+        return grid(count, Math.ceil(count / 3));
+      case 'column':
+        return grid(count, 4);
+      case 'square':
+        return grid(count, Math.ceil(Math.sqrt(count)));
+      case 'wedge':
+        return wedge(count);
+      case 'wall':
+        return grid(count, Math.ceil(count / 2), WALL_LATERAL, WALL_DEPTH);
+      case 'loose':
+        return grid(count, Math.ceil(count / 3), LOOSE_SPACING, LOOSE_SPACING);
+      case 'circle':
+        return circleSlots(count);
+    }
+  })();
+  if (scale !== 1) {
+    for (const s of slots) {
+      s.lateral *= scale;
+      s.depth *= scale;
+    }
   }
+  return slots;
 }
 
 function grid(count: number, cols: number, lateralSpacing = SPACING, depthSpacing = SPACING): Slot[] {

@@ -2,13 +2,12 @@ import { FlowField } from './flowfield';
 import { FORMATION_SPEED, layoutSlots, type FormationKind, type Slot } from './formation';
 import {
   MELEE_PURSUE,
-  MELEE_REACH,
   SOLDIER_ACCEL,
-  SOLDIER_HP,
   SOLDIER_MAX_SPEED,
   SOLDIER_RADIUS,
   type Soldier,
 } from './soldier';
+import { UNIT_TYPES, type UnitKey, type UnitType } from './unittype';
 import { CELL, type World } from './world';
 
 const MARCH_SPEED = 42; // how fast the formation anchor slides, px/s
@@ -29,9 +28,16 @@ const SHATTER_CASUALTY_FRACTION = 0.7;
 const CHARGE_SPEED_MULT = 1.8;
 const CHARGE_ACCEL_MULT = 1.7;
 const CHARGE_SOLDIER_SPEED_MULT = 1.6;
-// Formation discipline: a soldier breaks off a chase once it drags him this far
-// from his squad's anchor — no endless cross-map pursuit of routed men.
-const PURSUIT_LEASH = 170;
+// Stances: how far men range from the formation to fight. Defensive squads hold
+// their ranks; offensive squads hunt. Some formations imply a stance by default.
+export type Stance = 'defensive' | 'balanced' | 'offensive';
+export const STANCE_LEASH: Record<Stance, number> = { defensive: 100, balanced: 170, offensive: 240 };
+export const STANCE_SURGE: Record<Stance, number> = { defensive: 0, balanced: 160, offensive: 210 };
+const DEFAULT_STANCE: Partial<Record<FormationKind, Stance>> = {
+  wall: 'defensive',
+  circle: 'defensive',
+  wedge: 'offensive',
+};
 // In-combat footwork: a man trading blows shuffles, he doesn't sprint. Surging
 // toward a fight is quicker but still slower than open-field running.
 const FIGHTING_SPEED_MULT = 0.35;
@@ -74,8 +80,10 @@ function losPassable(world: World, x0: number, y0: number, x1: number, y1: numbe
 
 export class Squad {
   readonly team: number;
+  readonly unitType: UnitType;
   readonly soldiers: Soldier[] = [];
   formation: FormationKind;
+  stance: Stance = 'balanced';
   state: SquadState = 'steady';
   // True while the squad is in melee contact — set by the battle's combat pass.
   // Unengaged soldiers of an in-melee squad surge in instead of holding slots.
@@ -102,6 +110,7 @@ export class Squad {
 
   constructor(
     team: number,
+    unit: UnitKey,
     count: number,
     x: number,
     y: number,
@@ -111,12 +120,14 @@ export class Squad {
     allocId: () => number,
   ) {
     this.team = team;
+    this.unitType = UNIT_TYPES[unit];
     this.formation = formation;
+    this.stance = DEFAULT_STANCE[formation] ?? 'balanced';
     this.anchorX = x;
     this.anchorY = y;
     this.facing = facing;
     this.initialCount = count;
-    this.slots = layoutSlots(formation, count);
+    this.slots = layoutSlots(formation, count, this.slotScale());
     for (let i = 0; i < count; i++) {
       const [sx, sy] = this.slotWorld(i);
       this.soldiers.push({
@@ -131,13 +142,19 @@ export class Squad {
         facing,
         slot: i,
         avoidSide: 0,
-        hp: SOLDIER_HP,
+        hp: this.unitType.hp,
         targetId: 0,
         cooldown: 0,
         escaped: false,
         chargeBonus: false,
+        radius: this.unitType.radius,
+        reload: -1,
       });
     }
+  }
+
+  private slotScale(): number {
+    return this.unitType.radius / 7;
   }
 
   orderMove(x: number, y: number, world: World): void {
@@ -174,7 +191,9 @@ export class Squad {
   setFormation(kind: FormationKind): void {
     if (kind === this.formation) return;
     this.formation = kind;
-    this.slots = layoutSlots(kind, this.soldiers.length);
+    const def = DEFAULT_STANCE[kind];
+    if (def) this.stance = def;
+    this.slots = layoutSlots(kind, this.soldiers.length, this.slotScale());
     this.reassignSlots();
   }
 
@@ -228,7 +247,7 @@ export class Squad {
       if (s.hp <= 0 || s.escaped) this.soldiers.splice(i, 1);
     }
     if (this.soldiers.length > 0) {
-      this.slots = layoutSlots(this.formation, this.soldiers.length);
+      this.slots = layoutSlots(this.formation, this.soldiers.length, this.slotScale());
       this.reassignSlots();
     }
     const losses = 1 - this.soldiers.length / this.initialCount;
@@ -302,7 +321,12 @@ export class Squad {
     const dx = this.orderX - this.anchorX;
     const dy = this.orderY - this.anchorY;
     const dist = Math.hypot(dx, dy);
-    const arriveAt = this.attackTarget ? 24 : ARRIVE_RADIUS;
+    // Ranged squads attacking halt at firing distance; melee squads close to contact.
+    const arriveAt = this.attackTarget
+      ? this.unitType.ranged
+        ? this.unitType.ranged.range * 0.8
+        : 24
+      : ARRIVE_RADIUS;
     if (dist < arriveAt) {
       if (!this.attackTarget) {
         this.orderX = null;
@@ -337,6 +361,7 @@ export class Squad {
     const alignment = Math.max(0.15, Math.cos(diff));
     const maxSpeed =
       MARCH_SPEED *
+      this.unitType.speedMult *
       FORMATION_SPEED[this.formation] *
       world.speedAt(this.anchorX, this.anchorY) *
       alignment *
@@ -374,8 +399,9 @@ export class Squad {
       let flowDir: [number, number] | null = null;
 
       const target = !routing && s.targetId !== 0 ? getSoldier(s.targetId) : undefined;
+      const leash = STANCE_LEASH[this.stance];
       const withinLeash =
-        (this.anchorX - s.x) ** 2 + (this.anchorY - s.y) ** 2 <= PURSUIT_LEASH * PURSUIT_LEASH;
+        (this.anchorX - s.x) ** 2 + (this.anchorY - s.y) ** 2 <= leash * leash;
       const engaged =
         target !== undefined &&
         target.hp > 0 &&
@@ -388,7 +414,7 @@ export class Squad {
       } else if (engaged) {
         tx = target.x;
         ty = target.y;
-        stopRange = MELEE_REACH * 0.8;
+        stopRange = this.unitType.meleeReach * 0.8;
       } else {
         s.targetId = 0;
         const [slotX, slotY] = this.slotWorld(s.slot);
@@ -433,9 +459,10 @@ export class Squad {
       let paceMult = routing ? 1.1 : this.charging ? CHARGE_SOLDIER_SPEED_MULT : 1;
       if (engaged) {
         // Trading blows = shuffling footwork; closing in = a hustle, not a sprint.
-        paceMult = rawDist < MELEE_REACH * 2 ? FIGHTING_SPEED_MULT : SURGE_SPEED_MULT;
+        paceMult = rawDist < this.unitType.meleeReach * 2 ? FIGHTING_SPEED_MULT : SURGE_SPEED_MULT;
       }
-      const targetSpeed = SOLDIER_MAX_SPEED * Math.min(1, dist / 30) * world.speedAt(s.x, s.y) * paceMult;
+      const targetSpeed =
+        SOLDIER_MAX_SPEED * this.unitType.speedMult * Math.min(1, dist / 30) * world.speedAt(s.x, s.y) * paceMult;
       const desiredVx = dx * targetSpeed;
       const desiredVy = dy * targetSpeed;
 

@@ -1,14 +1,14 @@
 import { Rng } from './rng';
 import { SpatialGrid } from './spatialgrid';
-import { Squad } from './squad';
+import { STANCE_SURGE, Squad } from './squad';
 import {
   MELEE_ENGAGE,
   MELEE_PURSUE,
   MELEE_REACH,
-  MELEE_SURGE,
   SOLDIER_RADIUS,
   type Soldier,
 } from './soldier';
+import type { UnitKey } from './unittype';
 import { World } from './world';
 
 export const PLAYER_TEAM = 0;
@@ -34,22 +34,51 @@ export interface SquadSpec {
   x: number;
   y: number;
   facing: number;
-  formation: 'line' | 'column' | 'wedge' | 'square' | 'wall' | 'loose';
+  formation: 'line' | 'column' | 'wedge' | 'square' | 'wall' | 'loose' | 'circle';
+  /** unit type; defaults to swordsman */
+  type?: UnitKey;
 }
 
 const DEFAULT_SETUP: SquadSpec[] = [
-  { team: 0, count: 50, x: 0.22, y: 0.38, facing: 0, formation: 'line' },
-  { team: 0, count: 50, x: 0.22, y: 0.62, facing: 0, formation: 'line' },
-  { team: 1, count: 50, x: 0.78, y: 0.38, facing: Math.PI, formation: 'line' },
-  { team: 1, count: 50, x: 0.78, y: 0.62, facing: Math.PI, formation: 'line' },
+  { team: 0, count: 50, x: 0.22, y: 0.3, facing: 0, formation: 'line', type: 'swordsman' },
+  { team: 0, count: 50, x: 0.22, y: 0.5, facing: 0, formation: 'line', type: 'pikeman' },
+  { team: 0, count: 40, x: 0.15, y: 0.4, facing: 0, formation: 'loose', type: 'archer' },
+  { team: 0, count: 24, x: 0.18, y: 0.72, facing: 0, formation: 'wedge', type: 'cavalry' },
+  { team: 1, count: 50, x: 0.78, y: 0.3, facing: Math.PI, formation: 'line', type: 'swordsman' },
+  { team: 1, count: 50, x: 0.78, y: 0.5, facing: Math.PI, formation: 'line', type: 'pikeman' },
+  { team: 1, count: 40, x: 0.85, y: 0.4, facing: Math.PI, formation: 'loose', type: 'crossbowman' },
+  { team: 1, count: 20, x: 0.82, y: 0.72, facing: Math.PI, formation: 'wedge', type: 'knight' },
 ];
+
+// A missile in flight: straight-line ground track, the arc is purely visual.
+export interface Projectile {
+  x: number;
+  y: number;
+  prevX: number;
+  prevY: number;
+  sx: number;
+  sy: number;
+  tx: number;
+  ty: number;
+  t: number;
+  flightTime: number;
+  damage: [number, number];
+  pierce: boolean;
+  team: number;
+  arcHeight: number;
+}
+
+const PROJECTILE_HIT_RADIUS = 12;
+const CHARGING_MISSILE_VULNERABILITY = 1.5;
 
 // The whole battle state: world + squads. One tick() advances everything.
 export class Battle {
   readonly world: World;
   readonly squads: Squad[] = [];
+  readonly projectiles: Projectile[] = [];
   private allSoldiers: Soldier[] = [];
   private readonly soldierById = new Map<number, Soldier>();
+  private readonly squadOf = new Map<number, Squad>();
   private readonly grid: SpatialGrid;
   private readonly rng: Rng;
   private readonly pendingDeaths: DeathEvent[] = [];
@@ -66,6 +95,7 @@ export class Battle {
       this.squads.push(
         new Squad(
           spec.team,
+          spec.type ?? 'swordsman',
           spec.count,
           this.world.widthPx * spec.x,
           this.world.heightPx * spec.y,
@@ -79,6 +109,7 @@ export class Battle {
       for (const s of squad.soldiers) {
         this.allSoldiers.push(s);
         this.soldierById.set(s.id, s);
+        this.squadOf.set(s.id, squad);
       }
     }
   }
@@ -117,6 +148,8 @@ export class Battle {
     for (const squad of this.squads) squad.tick(dt, this.world, lookup);
     this.grid.rebuild(this.allSoldiers);
     this.combat(dt);
+    this.rangedFire(dt);
+    this.tickProjectiles(dt);
     this.separateSoldiers();
     this.resolveObstaclesAndBounds();
     this.cullDead();
@@ -152,6 +185,8 @@ export class Battle {
     this.aiClock = 0;
     for (const squad of this.squads) {
       if (squad.team === PLAYER_TEAM || squad.state !== 'steady' || squad.soldiers.length === 0) continue;
+      // Ranged squads hold their ground and shoot; only melee squads advance.
+      if (squad.unitType.ranged) continue;
       let best: Squad | null = null;
       let bestD2 = AI_AGGRO_RANGE * AI_AGGRO_RANGE;
       for (const other of this.squads) {
@@ -162,7 +197,11 @@ export class Battle {
           best = other;
         }
       }
-      if (best && !squad.isAttacking(best)) squad.orderAttack(best, this.world);
+      if (best && !squad.isAttacking(best)) {
+        squad.orderAttack(best, this.world);
+        // Horsemen come in at the gallop.
+        if (squad.unitType.mounted && bestD2 < 450 * 450) squad.startCharge();
+      }
     }
   }
 
@@ -208,7 +247,10 @@ export class Battle {
           }
         }
       }
-      const acquireRange = squad.inMelee ? MELEE_SURGE : MELEE_ENGAGE;
+      const type = squad.unitType;
+      const surge = STANCE_SURGE[squad.stance];
+      const acquireRange = squad.inMelee && surge > 0 ? surge : MELEE_ENGAGE;
+      const reach = type.meleeReach;
       let contact = false;
       for (const s of squad.soldiers) {
         let target = s.targetId !== 0 ? this.soldierById.get(s.targetId) : undefined;
@@ -226,18 +268,29 @@ export class Battle {
         if (!target) continue;
         const d2 = (target.x - s.x) ** 2 + (target.y - s.y) ** 2;
         if (d2 <= (MELEE_REACH * 2.2) ** 2) contact = true;
-        if (d2 <= MELEE_REACH * MELEE_REACH) {
+        if (d2 <= reach * reach) {
           s.cooldown -= dt;
           if (s.cooldown <= 0) {
-            let dmg = this.rng.int(5, 8);
+            const victimSquad = this.squadOf.get(target.id);
+            const victimType = victimSquad?.unitType;
+            let dmg = this.rng.int(type.meleeDamage[0], type.meleeDamage[1]);
             if (s.chargeBonus) {
-              dmg += this.rng.int(12, 18);
+              // Pikes blunt a charge — braced points meet the rush, no impact bonus.
+              if (!victimType?.pike) dmg += this.rng.int(type.chargeBonus[0], type.chargeBonus[1]);
               s.chargeBonus = false;
             }
+            // Pikes skewer horses.
+            if (type.pike && victimType?.mounted) dmg *= 2;
             const gang = attackersOn.get(target.id) ?? 1;
-            dmg = Math.round(dmg * Math.min(2.5, 1 + 0.3 * Math.max(0, gang - 1)));
+            dmg *= Math.min(2.5, 1 + 0.3 * Math.max(0, gang - 1));
+            if (victimSquad) {
+              if (victimSquad.stance === 'defensive') dmg *= 0.9;
+              else if (victimSquad.stance === 'offensive') dmg *= 1.1;
+            }
+            if (squad.stance === 'offensive') dmg *= 1.1;
+            dmg = Math.max(1, Math.round(dmg) - (victimType?.armor ?? 0));
             target.hp -= dmg;
-            s.cooldown = this.rng.range(1.3, 1.85);
+            s.cooldown = this.rng.range(type.meleeCooldown[0], type.meleeCooldown[1]);
           }
         }
       }
@@ -245,12 +298,93 @@ export class Battle {
     }
   }
 
+  // Archers and crossbowmen loose at will when steady, out of melee, and in range.
+  private rangedFire(dt: number): void {
+    for (const squad of this.squads) {
+      const rp = squad.unitType.ranged;
+      if (!rp || squad.state !== 'steady' || squad.inMelee) continue;
+      for (const s of squad.soldiers) {
+        if (s.targetId !== 0) continue; // fighting for his life, not shooting
+        if (s.reload === -1) {
+          // Stagger the opening volley so a squad doesn't fire as one metronome.
+          s.reload = this.rng.range(0.3, rp.reload[1] * 0.6);
+          continue;
+        }
+        s.reload -= dt;
+        if (s.reload > 0) continue;
+        const target = this.grid.nearestEnemy(s.x, s.y, s.team, rp.range);
+        if (!target) continue;
+        const dist = Math.hypot(target.x - s.x, target.y - s.y);
+        const flightTime = dist / rp.projectileSpeed;
+        // Lead a moving target imperfectly, plus distance-scaled scatter.
+        const scatter = dist * 0.05;
+        const tx =
+          target.x + target.vx * flightTime * 0.7 + this.rng.range(-scatter, scatter);
+        const ty =
+          target.y + target.vy * flightTime * 0.7 + this.rng.range(-scatter, scatter);
+        this.projectiles.push({
+          x: s.x,
+          y: s.y,
+          prevX: s.x,
+          prevY: s.y,
+          sx: s.x,
+          sy: s.y,
+          tx,
+          ty,
+          t: 0,
+          flightTime: Math.max(0.15, flightTime),
+          damage: rp.damage,
+          pierce: rp.pierce,
+          team: s.team,
+          arcHeight: rp.arcHeight,
+        });
+        s.reload = this.rng.range(rp.reload[0], rp.reload[1]);
+      }
+    }
+  }
+
+  private tickProjectiles(dt: number): void {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i]!;
+      p.prevX = p.x;
+      p.prevY = p.y;
+      p.t += dt;
+      const k = Math.min(1, p.t / p.flightTime);
+      p.x = p.sx + (p.tx - p.sx) * k;
+      p.y = p.sy + (p.ty - p.sy) * k;
+      if (k < 1) continue;
+
+      // Landed: hit whoever stands closest to the point — friend or foe. Loosing
+      // into a melee is a real gamble.
+      let victim: Soldier | null = null;
+      let bestD2 = PROJECTILE_HIT_RADIUS * PROJECTILE_HIT_RADIUS;
+      this.grid.forEachNear(p.tx, p.ty, PROJECTILE_HIT_RADIUS, (s) => {
+        if (s.hp <= 0 || s.escaped) return;
+        const d2 = (s.x - p.tx) ** 2 + (s.y - p.ty) ** 2;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          victim = s;
+        }
+      });
+      if (victim !== null) {
+        const v: Soldier = victim;
+        const vSquad = this.squadOf.get(v.id);
+        let dmg = this.rng.int(p.damage[0], p.damage[1]);
+        // Charging men are exposed — no shields up, no order.
+        if (vSquad?.charging) dmg *= CHARGING_MISSILE_VULNERABILITY;
+        if (!p.pierce) dmg = dmg - (vSquad?.unitType.armor ?? 0);
+        v.hp -= Math.max(1, Math.round(dmg));
+      }
+      this.projectiles.splice(i, 1);
+    }
+  }
+
   // Pairwise push-apart via the spatial grid — O(n · neighbors), fine at 1000v1000.
   private separateSoldiers(): void {
-    const minDist = SOLDIER_RADIUS * 2;
     for (const a of this.allSoldiers) {
-      this.grid.forEachNear(a.x, a.y, minDist, (b) => {
+      this.grid.forEachNear(a.x, a.y, a.radius * 2 + 6, (b) => {
         if (b.id <= a.id) return; // each pair once
+        const minDist = a.radius + b.radius;
         const dx = b.x - a.x;
         const dy = b.y - a.y;
         const d2 = dx * dx + dy * dy;
@@ -279,7 +413,7 @@ export class Battle {
           if (o.kind !== 'rock') continue;
           const dx = s.x - o.x;
           const dy = s.y - o.y;
-          const min = o.radius + SOLDIER_RADIUS;
+          const min = o.radius + s.radius;
           const d2 = dx * dx + dy * dy;
           if (d2 >= min * min || d2 === 0) continue;
           const d = Math.sqrt(d2);
@@ -310,6 +444,7 @@ export class Battle {
       for (const s of removed) {
         removedAny = true;
         this.soldierById.delete(s.id);
+        this.squadOf.delete(s.id);
         this.pendingDeaths.push({ id: s.id, x: s.x, y: s.y, team: s.team, escaped: s.escaped });
       }
     }
