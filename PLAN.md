@@ -57,6 +57,15 @@ animations, art style, pathfinding, formations, combat — then expand (more map
   - **Gore**: heavy — blood spurts on hits, spreading pools, persistent static corpse sprites
     (random sprawl) that stay all battle.
   - Plus: battle effects (dust behind charges, impact flashes), terrain texture upgrade, UI reskin.
+  - **Checkpoint 2026-08-17**: terrain texture upgrade is functionally done — ground color blend
+    is a real per-pixel canvas (no seams), shore-foam and cliff-edge ink lines now trace the
+    continuous smooth boundary instead of the 32px cell grid (was the last source of "square"
+    edges), rocks are rounded via a new `smoothBlob()` curve-through-jittered-points helper, and a
+    ground-litter pass (twigs, tree-base leaf flecks) plus higher brush/grit/tuft/bush density were
+    added for "go crazy on details." Prone corpses (added last session) had their head/leg
+    orientation mirrored per feedback that it read backwards. Not yet visually confirmed in-browser
+    by Jonathan — next session should open the dev server and eyeball a map before moving on.
+    Committed + pushed to origin/main at `267a107`.
 - **Later**: more battlefields, battle setup screen / army picker, multiplayer (lockstep over the
   deterministic sim).
 - **Later — player-created content**: custom units (stat-editor over the unittype data blocks,
