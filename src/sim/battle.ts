@@ -24,6 +24,8 @@ export interface DeathEvent {
   y: number;
   team: number;
   escaped: boolean;
+  unit: UnitKey;
+  facing: number;
 }
 
 export interface SquadSpec {
@@ -489,7 +491,15 @@ export class Battle {
         removedAny = true;
         this.soldierById.delete(s.id);
         this.squadOf.delete(s.id);
-        this.pendingDeaths.push({ id: s.id, x: s.x, y: s.y, team: s.team, escaped: s.escaped });
+        this.pendingDeaths.push({
+          id: s.id,
+          x: s.x,
+          y: s.y,
+          team: s.team,
+          escaped: s.escaped,
+          unit: squad.unitType.key,
+          facing: s.facing,
+        });
       }
     }
     if (removedAny) {

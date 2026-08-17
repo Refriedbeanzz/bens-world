@@ -5,6 +5,7 @@ import { MAPS } from './sim/maps';
 import { formationSpacing, layoutSlots, type FormationKind } from './sim/formation';
 import type { Squad, Stance } from './sim/squad';
 import { Camera } from './render/camera';
+import { GoreLayer } from './render/gore';
 import { drawProjectiles, SoldierLayer } from './render/soldiers';
 import { buildTerrainSprite, buildObstacleLayer } from './render/terrain';
 
@@ -66,8 +67,8 @@ async function boot(): Promise<void> {
     .stroke({ width: 6, color: 0x121a0a });
   stage.addChild(border);
 
-  const corpseLayer = new Graphics();
-  stage.addChild(corpseLayer);
+  const gore = new GoreLayer(app.renderer, world.widthPx, world.heightPx);
+  stage.addChild(gore.container);
 
   const selectionLayer = new Graphics();
   stage.addChild(selectionLayer);
@@ -439,15 +440,12 @@ async function boot(): Promise<void> {
       for (const death of battle.consumeDeaths()) {
         soldierLayer.removeById(death.id);
         if (!death.escaped) {
-          corpseLayer
-            .ellipse(death.x, death.y, 8, 5)
-            .fill({ color: 0x4a1f12, alpha: 0.55 })
-            .circle(death.x + 4, death.y + 2, 3)
-            .fill({ color: 0x3a1810, alpha: 0.5 });
+          gore.addDeath(death.x, death.y, death.facing, soldierLayer.getParts(death.team, death.unit));
         }
       }
 
-      soldierLayer.update(battle, alpha);
+      soldierLayer.update(battle, alpha, frameDt, gore);
+      gore.update(frameDt);
       drawProjectiles(projectileLayer, battle, alpha);
 
       for (const squad of [...selected]) {
