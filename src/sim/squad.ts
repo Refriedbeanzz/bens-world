@@ -15,7 +15,7 @@ import {
   type Soldier,
 } from './soldier';
 import { UNIT_TYPES, type UnitKey, type UnitType } from './unittype';
-import { CELL, type World } from './world';
+import type { World } from './world';
 
 const MARCH_SPEED = 42; // how fast the formation anchor slides, px/s
 const TURN_RATE = 1.1; // rad/s — slow, stately wheeling; fast turns scrambled the ranks
@@ -72,21 +72,26 @@ function hash01(n: number, salt: number): number {
   return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
 }
 
-// True when the straight segment crosses no hard wall (rocks/cliffs). Trees never
-// obstruct routing — a squad ordered through a forest goes through it (horses
-// just cross it slowly).
+// True when the straight segment crosses no hard wall (rocks/cliffs/deep water).
+// Trees never obstruct routing — a squad ordered through a forest goes through it.
 function losPassable(world: World, x0: number, y0: number, x1: number, y1: number): boolean {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const dist = Math.hypot(dx, dy);
-  const steps = Math.ceil(dist / (CELL / 2));
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const cx = Math.floor((x0 + dx * t) / CELL);
-    const cy = Math.floor((y0 + dy * t) / CELL);
-    if (world.isBlocked(cx, cy)) return false;
+  return world.lineWalkable(x0, y0, x1, y1);
+}
+
+// If the desired direction runs into solid terrain (deep water, cliffs) just
+// ahead, rotate toward the nearest clear heading — soldiers slide along a bank
+// instead of grinding into it.
+function slideAroundHard(world: World, x: number, y: number, dx: number, dy: number): [number, number] {
+  const probe = 16;
+  if (!world.isHardAt(x + dx * probe, y + dy * probe)) return [dx, dy];
+  for (const ang of [0.6, -0.6, 1.2, -1.2, 1.9, -1.9]) {
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    const ndx = dx * c - dy * s;
+    const ndy = dx * s + dy * c;
+    if (!world.isHardAt(x + ndx * probe, y + ndy * probe)) return [ndx, ndy];
   }
-  return true;
+  return [0, 0]; // boxed in — stand fast
 }
 
 export class Squad {
@@ -574,7 +579,9 @@ export class Squad {
         target !== undefined &&
         target.hp > 0 &&
         withinLeash &&
-        (target.x - s.x) ** 2 + (target.y - s.y) ** 2 <= MELEE_PURSUE * MELEE_PURSUE;
+        (target.x - s.x) ** 2 + (target.y - s.y) ** 2 <= MELEE_PURSUE * MELEE_PURSUE &&
+        // An enemy across deep water or a cliff isn't reachable — don't press.
+        losPassable(world, s.x, s.y, target.x, target.y);
 
       if (routing) {
         tx = fleeX;
@@ -623,6 +630,7 @@ export class Squad {
           dy = flowDir[1];
         }
         [dx, dy] = this.avoidObstacles(world, s, dx, dy, flowDir ? AVOID_LOOKAHEAD : dist);
+        [dx, dy] = slideAroundHard(world, s.x, s.y, dx, dy);
       }
 
       // Arrive: full speed when far from the goal, easing to a stop on it.

@@ -159,6 +159,21 @@ export class World {
     return f;
   }
 
+  /** True when the straight segment between two points crosses no blocked cell. */
+  lineWalkable(x0: number, y0: number, x1: number, y1: number): boolean {
+    const dx = x1 - x0;
+    const dy = y1 - y0;
+    const dist = Math.hypot(dx, dy);
+    const steps = Math.ceil(dist / (CELL / 2));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      if (this.isBlocked(Math.floor((x0 + dx * t) / CELL), Math.floor((y0 + dy * t) / CELL))) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /** Physically solid ground a soldier can never occupy (cliffs, deep water). */
   isHardAt(x: number, y: number): boolean {
     const cx = Math.floor(x / CELL);

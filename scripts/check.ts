@@ -386,6 +386,27 @@ console.log('S10: slopes, cliffs, and a ridge battle');
     if (enemy) squad.orderAttack(enemy, battle.world);
   }
   run(battle, 'S10', 90);
+
+  // Attacking across the river must route through a ford and reach contact —
+  // not shove into the deep channel forever.
+  const crossing = new Battle(
+    9090,
+    [
+      { team: 0, count: 40, x: 0.3, y: 0.5, facing: 0, formation: 'line' },
+      { team: 1, count: 40, x: 0.7, y: 0.5, facing: Math.PI, formation: 'line' },
+    ],
+    { enemyAI: false, map: MAPS['river']!.spec },
+  );
+  const attacker = crossing.squads[0]!;
+  attacker.orderAttack(crossing.squads[1]!, crossing.world);
+  let madeContact = false;
+  for (let i = 0; i < 180 * 30 && !madeContact; i++) {
+    crossing.tick(DT);
+    crossing.consumeDeaths();
+    if (attacker.inMelee) madeContact = true;
+    if (i % 30 === 0) checkInvariants(crossing, 'S10-river', i);
+  }
+  assert(madeContact, 'S10: attacker never crossed the river to reach the enemy');
 }
 
 if (failures === 0) {

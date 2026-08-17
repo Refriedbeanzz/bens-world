@@ -274,6 +274,8 @@ export class Battle {
           (target.x - s.x) ** 2 + (target.y - s.y) ** 2 > MELEE_PURSUE * MELEE_PURSUE
         ) {
           target = this.grid.nearestEnemy(s.x, s.y, s.team, acquireRange) ?? undefined;
+          // Don't lock onto enemies across deep water or cliffs.
+          if (target && !this.world.lineWalkable(s.x, s.y, target.x, target.y)) target = undefined;
           s.targetId = target?.id ?? 0;
           // Small stagger so contact doesn't resolve in one synchronized chop,
           // but short enough that the crash turns into fighting immediately.
