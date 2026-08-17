@@ -14,7 +14,7 @@ const NEIGHBORS: [number, number, number][] = [
 export class FlowField {
   private readonly cost = new Float64Array(GRID_W * GRID_H).fill(Infinity);
 
-  constructor(world: World, targetX: number, targetY: number, mounted = false) {
+  constructor(world: World, targetX: number, targetY: number) {
     const start = this.nearestWalkable(world, Math.floor(targetX / CELL), Math.floor(targetY / CELL));
     if (start === -1) return;
 
@@ -39,7 +39,7 @@ export class FlowField {
         if (world.isBlocked(nx, ny)) continue;
         // No corner-cutting: a diagonal needs both orthogonal cells open.
         if (dx !== 0 && dy !== 0 && (world.isBlocked(cx + dx, cy) || world.isBlocked(cx, cy + dy))) continue;
-        const nc = c + step * world.cellCost(nx, ny, mounted);
+        const nc = c + step * world.cellCost(nx, ny);
         const ni = ny * GRID_W + nx;
         if (nc < this.cost[ni]!) {
           this.cost[ni] = nc;

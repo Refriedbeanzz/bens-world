@@ -41,7 +41,6 @@ export const DEFAULT_SPEC: WorldSpec = {
 export const TREE_SPEED_FACTOR = 1.0;
 const TREE_PATH_COST = 1.0;
 const MOUNTED_TREE_SPEED = 0.35;
-const MOUNTED_TREE_PATH_COST = 3.5;
 /** Chance the canopy stops a missile whose landing point is in forest. */
 export const TREE_MISSILE_BLOCK = 0.55;
 /** Range multiplier for a shooter standing in forest. */
@@ -123,9 +122,8 @@ export class World {
   }
 
   /** Pathfinding cost multiplier for entering this cell (walls are skipped, not costed). */
-  cellCost(cx: number, cy: number, mounted = false): number {
-    if (!this.isSlow(cx, cy)) return 1;
-    return mounted ? MOUNTED_TREE_PATH_COST : TREE_PATH_COST;
+  cellCost(cx: number, cy: number): number {
+    return this.isSlow(cx, cy) ? TREE_PATH_COST : 1;
   }
 
   /** Movement speed multiplier at a world position (terrain type only, not slope). */

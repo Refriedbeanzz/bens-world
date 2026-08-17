@@ -72,16 +72,10 @@ function hash01(n: number, salt: number): number {
   return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
 }
 
-// True when the straight segment crosses no hard wall (rocks/cliffs). Trees only
-// count as obstructions for mounted units — horses route around woods.
-function losPassable(
-  world: World,
-  x0: number,
-  y0: number,
-  x1: number,
-  y1: number,
-  mounted = false,
-): boolean {
+// True when the straight segment crosses no hard wall (rocks/cliffs). Trees never
+// obstruct routing — a squad ordered through a forest goes through it (horses
+// just cross it slowly).
+function losPassable(world: World, x0: number, y0: number, x1: number, y1: number): boolean {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const dist = Math.hypot(dx, dy);
@@ -91,7 +85,6 @@ function losPassable(
     const cx = Math.floor((x0 + dx * t) / CELL);
     const cy = Math.floor((y0 + dy * t) / CELL);
     if (world.isBlocked(cx, cy)) return false;
-    if (mounted && world.isSlow(cx, cy)) return false;
   }
   return true;
 }
@@ -306,7 +299,7 @@ export class Squad {
 
   private rebuildFlow(world: World): void {
     if (this.orderX === null || this.orderY === null) return;
-    this.flow = new FlowField(world, this.orderX, this.orderY, this.unitType.mounted);
+    this.flow = new FlowField(world, this.orderX, this.orderY);
     this.flowTargetX = this.orderX;
     this.flowTargetY = this.orderY;
   }
@@ -502,9 +495,7 @@ export class Squad {
     // flow field around whatever is in the way.
     let dirX = dx / dist;
     let dirY = dy / dist;
-    if (
-      !losPassable(world, this.anchorX, this.anchorY, this.orderX, this.orderY, this.unitType.mounted)
-    ) {
+    if (!losPassable(world, this.anchorX, this.anchorY, this.orderX, this.orderY)) {
       const flowDir = this.flow?.direction(this.anchorX, this.anchorY);
       if (flowDir) {
         dirX = flowDir[0];
