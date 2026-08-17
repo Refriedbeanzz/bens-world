@@ -1,16 +1,8 @@
 import { Container, Graphics, RenderTexture, Sprite, type Renderer } from 'pixi.js';
 import { Rng } from '../sim/rng';
 import { CELL, GRID_W, GRID_H, type World } from '../sim/world';
-import {
-  crescent,
-  grainLines,
-  grime,
-  OUTLINE,
-  paintedShade,
-  specular,
-  wobblyCircle,
-  wobblyLine,
-} from './style';
+import { OUTLINE, paintedShade, wobblyCircle } from './style';
+import { drawPlant, drawRock, drawTree, PLANT_SPECIES, ROCK_SPECIES, TREE_SPECIES } from './naturalAssets';
 
 // Smooth value noise: random values on a coarse lattice, bilinearly interpolated.
 // Gives the grass gentle patchiness instead of per-tile static.
@@ -270,8 +262,13 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   // over dirt-leaning ground (tufts don't grow on a worn patch) — the same
   // field driving every other layer, so patches read as ONE dry spot instead
   // of grass, dirt-tinted grit, and tufts all disagreeing about it.
+  // Most of these are plain grass tufts; a fraction pull from the wider plant
+  // library (ferns, wildflowers, mushrooms, bramble...) filtered to species
+  // that belong in this biome, so the ground floor has real variety instead
+  // of one clump shape repeated everywhere.
   const tuftRng = new Rng(world.seed ^ 0x1e5f0a);
   const tuftCount = Math.round(GRID_W * GRID_H * pal.grassDensity * 1.25);
+  const biomePlants = PLANT_SPECIES.filter((p) => p.shape !== 'grass' && p.biomes.includes(world.spec.biome));
   for (let i = 0; i < tuftCount; i++) {
     const px = tuftRng.range(0, world.widthPx);
     const py = tuftRng.range(0, world.heightPx);
@@ -280,6 +277,11 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
     if (!isOpenGround(world, cx, cy)) continue;
     const dirtT = dirtLeanAt(px, py);
     if (tuftRng.next() < dirtT * 0.8) continue;
+    if (biomePlants.length > 0 && tuftRng.next() < 0.16) {
+      const species = biomePlants[tuftRng.int(0, biomePlants.length - 1)]!;
+      drawPlant(g, tuftRng, px, py, tuftRng.range(0.8, 1.2), species);
+      continue;
+    }
     const tone = lerpColor(pal.light, pal.dirt, dirtT * 0.5);
     drawGrassTuft(g, tuftRng, px, py, tuftRng.range(0.7, 1.3) * (1 - dirtT * 0.3), tone, pal.dark);
   }
@@ -381,152 +383,24 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   return new Sprite(texture);
 }
 
-const TREE_CANOPY_DARK = 0x223e1a;
-const TREE_CANOPY_LIGHT = 0x4c7238;
-const CONIFER_DARK = 0x1c3524;
-const CONIFER_LIGHT = 0x2f5236;
-const BARK = 0x4a3520;
-const BARK_DARK = 0x2e2010;
-const ROCK_COOL = 0x767066;
-const ROCK_WARM = 0x817259;
-const ROCK_DARK_COOL = 0x4c473f;
-const ROCK_DARK_WARM = 0x554a37;
-const MOSS = 0x4a5c2a;
 const SHADOW_COL = 0x000000;
 
-type TreeTier = 'small' | 'medium' | 'large';
+// Species mix per biome — weighted by repeating a key, so common trees for
+// that biome come up more often without needing a separate weight table.
+const TREE_MIX: Record<string, string[]> = {
+  meadow: ['oak', 'oak', 'oak', 'elderOak', 'birch', 'aspen', 'willow', 'maple', 'snag'],
+  forest: ['oak', 'oak', 'elderOak', 'elderOak', 'pine', 'pine', 'spruce', 'birch', 'willow', 'snag'],
+  steppe: ['scrubPine', 'scrubPine', 'aspen', 'snag', 'oak'],
+};
+const ROCK_MIX: Record<string, string[]> = {
+  meadow: ['granite', 'granite', 'mossyBoulder', 'crackedGranite', 'rubble', 'limestone'],
+  forest: ['mossyBoulder', 'mossyBoulder', 'granite', 'crackedGranite', 'rubble', 'basalt'],
+  steppe: ['sandstone', 'sandstone', 'granite', 'slateLedge', 'rubble', 'limestone'],
+};
 
-function treeTier(r: number): TreeTier {
-  return r > 25 ? 'large' : r > 17 ? 'medium' : 'small';
-}
-
-// A jagged wobbly ring for conifer canopy tiers — spiky needle silhouette
-// instead of a smooth round lobe.
-function conifer(g: Graphics, rng: Rng, cx: number, cy: number, r: number, color: number): void {
-  const tiers = 3;
-  for (let t = 0; t < tiers; t++) {
-    const tr = r * (1 - t * 0.26);
-    const ty = cy - t * r * 0.22;
-    const spikes = 10;
-    const pts: number[] = [];
-    for (let i = 0; i < spikes * 2; i++) {
-      const a = (i / (spikes * 2)) * Math.PI * 2;
-      const rr = tr * (i % 2 === 0 ? 1 : 0.7) * (1 + rng.range(-0.06, 0.06));
-      pts.push(cx + Math.cos(a) * rr, ty + Math.sin(a) * rr * 0.85);
-    }
-    g.poly(pts).fill(shade(color, 1 - t * 0.08)).stroke({ width: 0.8, color: OUTLINE, alpha: 0.7 });
-  }
-}
-
-function drawTree(g: Graphics, rng: Rng, x: number, y: number, r: number): void {
-  const tier = treeTier(r);
-  const isConifer = rng.next() < 0.28;
-  const hue = rng.range(-0.08, 0.1);
-
-  // Root flare / trunk peek at the base, under the canopy — the only part
-  // of a trunk that reads from directly above.
-  const trunkR = tier === 'large' ? r * 0.22 : tier === 'medium' ? 0.16 * r : 0.11 * r;
-  wobblyCircle(g, rng, x, y, trunkR, BARK, BARK_DARK, 0.8);
-  if (tier === 'large') {
-    const flares = rng.int(4, 6);
-    for (let i = 0; i < flares; i++) {
-      const a = (i / flares) * Math.PI * 2 + rng.range(-0.2, 0.2);
-      wobblyLine(g, rng, x, y, x + Math.cos(a) * trunkR * 1.8, y + Math.sin(a) * trunkR * 1.8, 1.1, BARK_DARK);
-    }
-  }
-
-  if (isConifer) {
-    conifer(g, rng, x, y, r, lerpColor(CONIFER_DARK, CONIFER_LIGHT, 0.5 + hue));
-    paintedShade(g, x, y - r * 0.15, r * 0.95, LIGHT_A, DARK_A, 0xcfe0b0, SHADOW_COL);
-    return;
-  }
-
-  // Deciduous: multi-lobe canopy, more lobes on bigger/older trees.
-  const lobes = tier === 'small' ? 2 : tier === 'medium' ? 3 : 5;
-  const base = lerpColor(TREE_CANOPY_DARK, TREE_CANOPY_LIGHT, 0.5 + hue);
-  for (let i = 0; i < lobes; i++) {
-    const a = (i / lobes) * Math.PI * 2 + rng.range(-0.3, 0.3);
-    const d = i === 0 ? 0 : r * rng.range(0.25, 0.42);
-    const lr = r * (i === 0 ? rng.range(0.75, 0.95) : rng.range(0.5, 0.72));
-    const lobeHue = hue + rng.range(-0.05, 0.05);
-    wobblyCircle(
-      g,
-      rng,
-      x + Math.cos(a) * d,
-      y + Math.sin(a) * d,
-      lr,
-      lerpColor(TREE_CANOPY_DARK, TREE_CANOPY_LIGHT, 0.5 + lobeHue),
-      OUTLINE,
-      0.9,
-    );
-  }
-  paintedShade(g, x, y, r * 0.95, LIGHT_A, DARK_A, 0xd8ecb0, SHADOW_COL);
-  crescent(g, x, y, r * 0.9, LIGHT_A, 1.0, r * 0.3, base, 0.12); // soft canopy-color bounce
-  grainLines(g, rng, x - r * 0.1, y, r * 0.35, rng.range(0, Math.PI), r * 1.4, 5, TREE_CANOPY_DARK, 0.12, 0.4);
-  if (tier !== 'small' && rng.next() < 0.7) {
-    grime(g, rng, x, y, r * 0.85, 3, [0x6a5030, 0x8a7038]); // a few dry/autumn leaf flecks
-  }
-}
-
-function drawBoulder(g: Graphics, rng: Rng, x: number, y: number, r: number): void {
-  const warm = rng.next();
-  const base = lerpColor(ROCK_COOL, ROCK_WARM, warm);
-  const darkBase = lerpColor(ROCK_DARK_COOL, ROCK_DARK_WARM, warm);
-
-  const sides = rng.int(7, 10);
-  const points: number[] = [];
-  for (let i = 0; i < sides; i++) {
-    const a = (i / sides) * Math.PI * 2;
-    const rr = r * rng.range(0.62, 1.08);
-    points.push(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
-  }
-  g.poly(points).fill(base).stroke({ width: 1.2, color: darkBase });
-  paintedShade(g, x, y, r * 0.95, LIGHT_A, DARK_A, 0xf0ece0, SHADOW_COL);
-
-  // facet lines: a couple of straight chords suggesting a fractured, angular surface
-  for (let i = 0; i < rng.int(2, 3); i++) {
-    const a0 = rng.range(0, Math.PI * 2);
-    const a1 = a0 + rng.range(1.4, 2.6);
-    const r0 = r * rng.range(0.3, 0.8);
-    const r1 = r * rng.range(0.3, 0.8);
-    g.moveTo(x + Math.cos(a0) * r0, y + Math.sin(a0) * r0)
-      .lineTo(x + Math.cos(a1) * r1, y + Math.sin(a1) * r1)
-      .stroke({ width: 0.6, color: darkBase, alpha: 0.55 });
-  }
-
-  // moss on the shadow side — damp, shaded stone grows lichen
-  if (rng.next() < 0.75) {
-    const ma = DARK_A + rng.range(-0.4, 0.4);
-    grime(g, rng, x + Math.cos(ma) * r * 0.4, y + Math.sin(ma) * r * 0.4, r * 0.55, rng.int(4, 7), [
-      MOSS,
-      0x5c6e34,
-      0x3a4620,
-    ]);
-  }
-
-  // occasional wet/polished glint on the lit face
-  if (rng.next() < 0.35) {
-    specular(g, x + Math.cos(LIGHT_A) * r * 0.35, y + Math.sin(LIGHT_A) * r * 0.35, r * 0.14, 0.4);
-  }
-
-  // satellite pebbles at the base of bigger boulders
-  if (r > 16 && rng.next() < 0.6) {
-    const n = rng.int(1, 3);
-    for (let i = 0; i < n; i++) {
-      const a = rng.range(0, Math.PI * 2);
-      const d = r * rng.range(0.8, 1.15);
-      const pr = r * rng.range(0.15, 0.3);
-      const px = x + Math.cos(a) * d;
-      const py = y + Math.sin(a) * d;
-      const pts: number[] = [];
-      const psides = rng.int(5, 6);
-      for (let j = 0; j < psides; j++) {
-        const pa = (j / psides) * Math.PI * 2;
-        pts.push(px + Math.cos(pa) * pr * rng.range(0.75, 1.05), py + Math.sin(pa) * pr * rng.range(0.75, 1.05));
-      }
-      g.poly(pts).fill(base).stroke({ width: 0.7, color: darkBase });
-    }
-  }
+function pick<T>(rng: Rng, keys: string[], table: T[], keyOf: (t: T) => string): T {
+  const wantKey = keys[rng.int(0, keys.length - 1)]!;
+  return table.find((t) => keyOf(t) === wantKey) ?? table[rng.int(0, table.length - 1)]!;
 }
 
 export function buildObstacleLayer(world: World): Container {
@@ -534,6 +408,8 @@ export function buildObstacleLayer(world: World): Container {
   const shadows = new Graphics();
   const bodies = new Graphics();
   const rng = new Rng(world.seed ^ 0x77aa11);
+  const treeMix = TREE_MIX[world.spec.biome] ?? TREE_MIX.meadow!;
+  const rockMix = ROCK_MIX[world.spec.biome] ?? ROCK_MIX.meadow!;
 
   for (const o of world.obstacles) {
     shadows
@@ -542,8 +418,11 @@ export function buildObstacleLayer(world: World): Container {
   }
 
   for (const o of world.obstacles) {
-    if (o.kind === 'tree') drawTree(bodies, rng, o.x, o.y, o.radius);
-    else drawBoulder(bodies, rng, o.x, o.y, o.radius);
+    if (o.kind === 'tree') {
+      drawTree(bodies, rng, o.x, o.y, o.radius, pick(rng, treeMix, TREE_SPECIES, (s) => s.key));
+    } else {
+      drawRock(bodies, rng, o.x, o.y, o.radius, pick(rng, rockMix, ROCK_SPECIES, (s) => s.key));
+    }
   }
 
   layer.addChild(shadows, bodies);
