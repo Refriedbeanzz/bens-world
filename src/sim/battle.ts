@@ -454,6 +454,14 @@ export class Battle {
           s.x = o.x + (dx / d) * min;
           s.y = o.y + (dy / d) * min;
         }
+        // Cliffs are solid: a soldier pushed onto a cliff cell bounces back to
+        // where he stood last tick.
+        if (world.isCliffAt(s.x, s.y)) {
+          s.x = s.prevX;
+          s.y = s.prevY;
+          s.vx = 0;
+          s.vy = 0;
+        }
         if (mayLeave) {
           if (
             s.x < -40 ||

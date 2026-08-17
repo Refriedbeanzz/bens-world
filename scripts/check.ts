@@ -332,6 +332,20 @@ console.log('S10: slopes, cliffs, and a ridge battle');
   }
   assert(corridorOpen, 'S10: canyon corridor is sealed somewhere');
 
+  // Forests bog horses but not men.
+  const wood = new World(1111, MAPS['greenwood']!.spec);
+  let treeCell: [number, number] | null = null;
+  for (let cy = 0; cy < GRID_H && !treeCell; cy++) {
+    for (let cx = 0; cx < GRID_W && !treeCell; cx++) {
+      if (wood.isSlow(cx, cy)) treeCell = [cx * 32 + 16, cy * 32 + 16];
+    }
+  }
+  assert(treeCell !== null, 'S10: greenwood generated no forest at all');
+  if (treeCell) {
+    assert(wood.speedAt(treeCell[0], treeCell[1], false) === 1, 'S10: infantry slowed by trees');
+    assert(wood.speedAt(treeCell[0], treeCell[1], true) < 0.5, 'S10: horses not bogged by trees');
+  }
+
   const battle = new Battle(2468, undefined, { map: MAPS['ridge']!.spec });
   for (const squad of battle.squads) {
     const enemy = battle.squads.find((o) => o.team !== squad.team && o.soldiers.length > 0);

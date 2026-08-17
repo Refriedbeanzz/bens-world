@@ -72,8 +72,16 @@ function hash01(n: number, salt: number): number {
   return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
 }
 
-/** True when the straight segment crosses no hard wall (rocks). Trees don't count — they're walkable. */
-function losPassable(world: World, x0: number, y0: number, x1: number, y1: number): boolean {
+// True when the straight segment crosses no hard wall (rocks/cliffs). Trees only
+// count as obstructions for mounted units — horses route around woods.
+function losPassable(
+  world: World,
+  x0: number,
+  y0: number,
+  x1: number,
+  y1: number,
+  mounted = false,
+): boolean {
   const dx = x1 - x0;
   const dy = y1 - y0;
   const dist = Math.hypot(dx, dy);
@@ -83,6 +91,7 @@ function losPassable(world: World, x0: number, y0: number, x1: number, y1: numbe
     const cx = Math.floor((x0 + dx * t) / CELL);
     const cy = Math.floor((y0 + dy * t) / CELL);
     if (world.isBlocked(cx, cy)) return false;
+    if (mounted && world.isSlow(cx, cy)) return false;
   }
   return true;
 }
@@ -297,7 +306,7 @@ export class Squad {
 
   private rebuildFlow(world: World): void {
     if (this.orderX === null || this.orderY === null) return;
-    this.flow = new FlowField(world, this.orderX, this.orderY);
+    this.flow = new FlowField(world, this.orderX, this.orderY, this.unitType.mounted);
     this.flowTargetX = this.orderX;
     this.flowTargetY = this.orderY;
   }
@@ -493,7 +502,9 @@ export class Squad {
     // flow field around whatever is in the way.
     let dirX = dx / dist;
     let dirY = dy / dist;
-    if (!losPassable(world, this.anchorX, this.anchorY, this.orderX, this.orderY)) {
+    if (
+      !losPassable(world, this.anchorX, this.anchorY, this.orderX, this.orderY, this.unitType.mounted)
+    ) {
       const flowDir = this.flow?.direction(this.anchorX, this.anchorY);
       if (flowDir) {
         dirX = flowDir[0];
@@ -523,7 +534,7 @@ export class Squad {
       MARCH_SPEED *
       this.unitType.speedMult *
       FORMATION_SPEED[this.formation] *
-      world.speedAt(this.anchorX, this.anchorY) *
+      world.speedAt(this.anchorX, this.anchorY, this.unitType.mounted) *
       world.slopeSpeedFactor(this.anchorX, this.anchorY, Math.cos(this.facing), Math.sin(this.facing)) *
       alignment *
       bogged *
@@ -644,7 +655,7 @@ export class Squad {
         this.unitType.speedMult *
         s.pace *
         Math.min(1, dist / 30) *
-        world.speedAt(s.x, s.y) *
+        world.speedAt(s.x, s.y, this.unitType.mounted) *
         world.slopeSpeedFactor(s.x, s.y, dx, dy) *
         paceMult;
       const desiredVx = dx * targetSpeed;

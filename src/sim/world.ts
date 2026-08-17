@@ -34,11 +34,14 @@ export const DEFAULT_SPEC: WorldSpec = {
   rocks: [10, 16],
 };
 
-// Trees have exactly ONE gameplay effect: they weaken archery (halved range
-// shooting from inside, canopy blocks missiles landing inside). Movement is
-// completely unaffected. Rocks and cliffs are hard walls.
+// Trees weaken archery (halved range shooting from inside, canopy blocks
+// missiles landing inside) and bog HORSES — mounted units crawl through woods
+// and their route-planning avoids them. Infantry move through unaffected.
+// Rocks and cliffs are hard walls for everyone.
 export const TREE_SPEED_FACTOR = 1.0;
 const TREE_PATH_COST = 1.0;
+const MOUNTED_TREE_SPEED = 0.35;
+const MOUNTED_TREE_PATH_COST = 3.5;
 /** Chance the canopy stops a missile whose landing point is in forest. */
 export const TREE_MISSILE_BLOCK = 0.55;
 /** Range multiplier for a shooter standing in forest. */
@@ -49,7 +52,9 @@ export const TREE_SHOOTER_RANGE = 0.5;
 // cells is an unclimbable face.
 const SLOPE_K = 6;
 const SLOPE_LOOKAHEAD = 26;
-const CLIFF_DELTA = 0.09;
+// Steeper than any rolling/ridge terrain can produce — only deliberately sheer
+// features (canyon walls) generate cliffs.
+const CLIFF_DELTA = 0.13;
 
 // Smooth value noise on a coarse lattice, bilinear + smoothstep interpolation.
 function makeLatticeNoise(rng: Rng, w: number, h: number): (u: number, v: number) => number {
@@ -111,18 +116,32 @@ export class World {
     return this.blocked[i] === 0 && this.slow[i] === 0;
   }
 
+  /** Is this cell forest? */
+  isSlow(cx: number, cy: number): boolean {
+    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return false;
+    return this.slow[cy * GRID_W + cx] === 1;
+  }
+
   /** Pathfinding cost multiplier for entering this cell (walls are skipped, not costed). */
-  cellCost(cx: number, cy: number): number {
-    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return 1;
-    return this.slow[cy * GRID_W + cx] === 1 ? TREE_PATH_COST : 1;
+  cellCost(cx: number, cy: number, mounted = false): number {
+    if (!this.isSlow(cx, cy)) return 1;
+    return mounted ? MOUNTED_TREE_PATH_COST : TREE_PATH_COST;
   }
 
   /** Movement speed multiplier at a world position (terrain type only, not slope). */
-  speedAt(x: number, y: number): number {
+  speedAt(x: number, y: number, mounted = false): number {
     const cx = Math.floor(x / CELL);
     const cy = Math.floor(y / CELL);
-    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return 1;
-    return this.slow[cy * GRID_W + cx] === 1 ? TREE_SPEED_FACTOR : 1;
+    if (!this.isSlow(cx, cy)) return 1;
+    return mounted ? MOUNTED_TREE_SPEED : TREE_SPEED_FACTOR;
+  }
+
+  /** Is this world position on a cliff cell? (Hard wall — soldiers collide.) */
+  isCliffAt(x: number, y: number): boolean {
+    const cx = Math.floor(x / CELL);
+    const cy = Math.floor(y / CELL);
+    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return false;
+    return this.cliff[cy * GRID_W + cx] === 1;
   }
 
   /** Is this world position under forest canopy? */
@@ -177,7 +196,7 @@ export class World {
             h = 0.5 + n * 0.06;
             break;
           case 'rolling':
-            h = 0.5 + n * 0.5;
+            h = 0.5 + n * 0.4;
             break;
           case 'ridge': {
             // A long high ground running down the center of the field.
