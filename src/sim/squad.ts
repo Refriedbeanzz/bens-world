@@ -109,7 +109,7 @@ export class Squad {
   widthCols: number | null = null;
   // Direction to front toward once the move completes (from a dragged battle line).
   arrivalFacing: number | null = null;
-  private readonly initialCount: number;
+  readonly initialCount: number;
   private slots: Slot[];
   private orderX: number | null = null;
   private orderY: number | null = null;
@@ -249,6 +249,15 @@ export class Squad {
 
   isAttacking(target?: Squad): boolean {
     return target ? this.attackTarget === target : this.attackTarget !== null;
+  }
+
+  hasOrder(): boolean {
+    return this.orderX !== null;
+  }
+
+  /** Fraction of the squad's starting men still standing. */
+  strengthFraction(): number {
+    return this.soldiers.length / this.initialCount;
   }
 
   /** Break into a charge toward the current order. Ends on impact or arrival. */

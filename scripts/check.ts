@@ -113,7 +113,7 @@ console.log('S3: shatter and flee');
     { team: 1, count: 50, x: 0.55, y: 0.5, facing: Math.PI, formation: 'line' },
     { team: 1, count: 50, x: 0.55, y: 0.6, facing: Math.PI, formation: 'line' },
     { team: 1, count: 50, x: 0.62, y: 0.5, facing: Math.PI, formation: 'line' },
-  ]);
+  ], { enemyAI: false });
   const blue = battle.squads[0]!;
   blue.orderAttack(battle.squads[1]!, battle.world);
   let sawEscape = false;
@@ -123,12 +123,17 @@ console.log('S3: shatter and flee');
     battle.tick(DT);
     for (const d of battle.consumeDeaths()) if (d.escaped) sawEscape = true;
     if (blue.state === 'fleeing') sawFleeing = true;
-    // Red commander hunts the broken squad down (attack orders drop routed
-    // targets, so chase its position with move orders).
-    if (i % 60 === 0 && blue.state === 'routing' && blue.soldiers.length > 0) {
+    // Red commander gives no quarter: attack while blue stands (including after
+    // a rally), chase its position while it runs (attack orders drop routed targets).
+    if (i % 60 === 0 && blue.soldiers.length > 0) {
       const bs = blue.soldiers[0]!;
       for (const red of battle.squads) {
-        if (red.team === 1) red.orderMove(bs.x, bs.y, battle.world);
+        if (red.team !== 1 || red.state !== 'steady') continue;
+        if (blue.state === 'steady') {
+          if (!red.isAttacking(blue)) red.orderAttack(blue, battle.world);
+        } else {
+          red.orderMove(bs.x, bs.y, battle.world);
+        }
       }
     }
     if (i % 30 === 0) checkInvariants(battle, 'S3', i);
@@ -145,7 +150,7 @@ console.log('S6: rout and rally');
     { team: 0, count: 50, x: 0.35, y: 0.5, facing: 0, formation: 'line' },
     { team: 1, count: 50, x: 0.5, y: 0.45, facing: Math.PI, formation: 'line' },
     { team: 1, count: 50, x: 0.5, y: 0.55, facing: Math.PI, formation: 'line' },
-  ]);
+  ], { enemyAI: false });
   const blue = battle.squads[0]!;
   blue.orderAttack(battle.squads[1]!, battle.world);
   let broke = false;
@@ -231,7 +236,7 @@ console.log('S7: archers kill at range');
   const battle = new Battle(31415, [
     { team: 0, count: 40, x: 0.38, y: 0.5, facing: 0, formation: 'loose', type: 'archer' },
     { team: 1, count: 40, x: 0.5, y: 0.5, facing: Math.PI, formation: 'line', type: 'swordsman' },
-  ]);
+  ], { enemyAI: false });
   const red = battle.squads[1]!;
   // Hold red still: keep re-issuing a stand-fast move order at its own anchor.
   const [rx, ry] = [red.anchorX, red.anchorY];
@@ -252,7 +257,7 @@ console.log('S8: pikes blunt a cavalry charge');
   const battle = new Battle(27182, [
     { team: 0, count: 50, x: 0.45, y: 0.5, facing: 0, formation: 'wall', type: 'pikeman' },
     { team: 1, count: 20, x: 0.6, y: 0.5, facing: Math.PI, formation: 'wedge', type: 'knight' },
-  ]);
+  ], { enemyAI: false });
   const pikes = battle.squads[0]!;
   const knights = battle.squads[1]!;
   knights.orderAttack(pikes, battle.world);
@@ -268,6 +273,29 @@ console.log('S8: pikes blunt a cavalry charge');
     `S8: knights were not broken by the pike wall (knights ${knights.soldiers.length}, pikes ${pikes.soldiers.length})`,
   );
   assert(pikes.state === 'steady', `S8: pike wall broke (pikes ${pikes.soldiers.length} left)`);
+}
+
+// S9: the AI commander must decisively beat an identical army with no orders.
+console.log('S9: AI commander beats an idle army');
+{
+  const battle = new Battle(20260816); // default mixed-arms 4v4, AI on
+  const start0 = count(battle, 0);
+  const fighting = (team: number) =>
+    battle.squads
+      .filter((s) => s.team === team && s.state === 'steady')
+      .reduce((n, s) => n + s.soldiers.length, 0);
+  for (let i = 0; i < 300 * 30; i++) {
+    battle.tick(DT);
+    battle.consumeDeaths();
+    if (i % 60 === 0) checkInvariants(battle, 'S9', i);
+    if (fighting(0) === 0) break;
+  }
+  const playerLosses = 1 - count(battle, 0) / start0;
+  assert(
+    fighting(0) === 0 || fighting(1) > fighting(0) * 1.5,
+    `S9: AI failed to beat an idle army (blue ${fighting(0)} vs red ${fighting(1)})`,
+  );
+  assert(playerLosses > 0.4, `S9: AI barely scratched the idle army (${Math.round(playerLosses * 100)}% losses)`);
 }
 
 if (failures === 0) {

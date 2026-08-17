@@ -1,3 +1,4 @@
+import { AiCommander } from './ai';
 import { Rng } from './rng';
 import { SpatialGrid } from './spatialgrid';
 import { STANCE_SURGE, Squad } from './squad';
@@ -13,8 +14,6 @@ import { TREE_MISSILE_BLOCK, TREE_SHOOTER_RANGE, World } from './world';
 
 export const PLAYER_TEAM = 0;
 
-const AI_THINK_INTERVAL = 2; // seconds between enemy decisions
-const AI_AGGRO_RANGE = 550;
 // A routed squad rallies after this much continuous breathing room.
 const RALLY_ENEMY_DISTANCE = 380;
 const RALLY_TIME = 4;
@@ -82,10 +81,11 @@ export class Battle {
   private readonly grid: SpatialGrid;
   private readonly rng: Rng;
   private readonly pendingDeaths: DeathEvent[] = [];
-  private aiClock = 0;
+  private readonly commander: AiCommander | null;
   private nextSoldierId = 1;
 
-  constructor(seed: number, setup: SquadSpec[] = DEFAULT_SETUP) {
+  constructor(seed: number, setup: SquadSpec[] = DEFAULT_SETUP, opts: { enemyAI?: boolean } = {}) {
+    this.commander = opts.enemyAI === false ? null : new AiCommander(1);
     this.world = new World(seed);
     this.rng = new Rng(seed ^ 0x5eed);
     this.grid = new SpatialGrid(this.world.widthPx, this.world.heightPx);
@@ -143,7 +143,7 @@ export class Battle {
   }
 
   tick(dt: number): void {
-    this.enemyAI(dt);
+    this.commander?.tick(this, dt);
     const lookup = (id: number) => this.soldierById.get(id);
     for (const squad of this.squads) squad.tick(dt, this.world, lookup);
     this.grid.rebuild(this.allSoldiers);
@@ -200,33 +200,6 @@ export class Battle {
       } else {
         squad.rallyProgress += dt;
         if (squad.rallyProgress >= RALLY_TIME) squad.rally();
-      }
-    }
-  }
-
-  // Enemy squads advance on the nearest player squad once it's in aggro range.
-  private enemyAI(dt: number): void {
-    this.aiClock += dt;
-    if (this.aiClock < AI_THINK_INTERVAL) return;
-    this.aiClock = 0;
-    for (const squad of this.squads) {
-      if (squad.team === PLAYER_TEAM || squad.state !== 'steady' || squad.soldiers.length === 0) continue;
-      // Ranged squads hold their ground and shoot; only melee squads advance.
-      if (squad.unitType.ranged) continue;
-      let best: Squad | null = null;
-      let bestD2 = AI_AGGRO_RANGE * AI_AGGRO_RANGE;
-      for (const other of this.squads) {
-        if (other.team !== PLAYER_TEAM || other.state !== 'steady' || other.soldiers.length === 0) continue;
-        const d2 = (other.anchorX - squad.anchorX) ** 2 + (other.anchorY - squad.anchorY) ** 2;
-        if (d2 < bestD2) {
-          bestD2 = d2;
-          best = other;
-        }
-      }
-      if (best && !squad.isAttacking(best)) {
-        squad.orderAttack(best, this.world);
-        // Horsemen come in at the gallop.
-        if (squad.unitType.mounted && bestD2 < 450 * 450) squad.startCharge();
       }
     }
   }
