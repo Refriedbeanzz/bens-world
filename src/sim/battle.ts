@@ -154,6 +154,32 @@ export class Battle {
     this.resolveObstaclesAndBounds();
     this.cullDead();
     this.rallyRoutedSquads(dt);
+    this.idleFacing(dt);
+  }
+
+  // A halted squad slowly fronts toward the nearest enemy formation — no one
+  // stands around showing an enemy their backs.
+  private idleFacing(dt: number): void {
+    const range2 = 700 * 700;
+    for (const squad of this.squads) {
+      if (!squad.isIdle() || squad.soldiers.length === 0) continue;
+      let best: Squad | null = null;
+      let bestD2 = range2;
+      for (const other of this.squads) {
+        if (other.team === squad.team || other.soldiers.length === 0 || other.state !== 'steady') continue;
+        const d2 = (other.anchorX - squad.anchorX) ** 2 + (other.anchorY - squad.anchorY) ** 2;
+        if (d2 < bestD2) {
+          bestD2 = d2;
+          best = other;
+        }
+      }
+      if (best) {
+        squad.faceToward(
+          Math.atan2(best.anchorY - squad.anchorY, best.anchorX - squad.anchorX),
+          dt,
+        );
+      }
+    }
   }
 
   // Routed squads that shake their pursuers regroup and rejoin the battle.
@@ -238,13 +264,21 @@ export class Battle {
         for (const s of squad.soldiers) {
           if (this.grid.nearestEnemy(s.x, s.y, s.team, contactRange)) {
             squad.inMelee = true;
-            // Charge impact: momentum converts into bonus damage on first swings.
+            // Charge impact: momentum converts into bonus damage on first swings,
+            // but only within the impact window — the crash, not the grind.
             if (squad.charging) {
               squad.charging = false;
+              squad.chargeImpactClock = 3;
               for (const cs of squad.soldiers) cs.chargeBonus = true;
             }
             break;
           }
+        }
+      }
+      if (squad.chargeImpactClock > 0) {
+        squad.chargeImpactClock -= dt;
+        if (squad.chargeImpactClock <= 0) {
+          for (const cs of squad.soldiers) cs.chargeBonus = false;
         }
       }
       const type = squad.unitType;
@@ -270,6 +304,9 @@ export class Battle {
         if (d2 <= (MELEE_REACH * 2.2) ** 2) contact = true;
         if (d2 <= reach * reach) {
           s.cooldown -= dt;
+          // The impact strike lands at the gallop — no wind-up. A charge deletes
+          // the men it actually hits, then the grind begins.
+          if (s.chargeBonus && squad.chargeImpactClock > 0) s.cooldown = 0;
           if (s.cooldown <= 0) {
             const victimSquad = this.squadOf.get(target.id);
             const victimType = victimSquad?.unitType;

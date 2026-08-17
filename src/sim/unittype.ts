@@ -80,7 +80,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     chargeBonus: [4, 8],
     ranged: {
       range: 320,
-      damage: [9, 14],
+      damage: [4, 18],
       reload: [3.2, 4.2],
       projectileSpeed: 240,
       arcHeight: 42,
@@ -102,7 +102,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     chargeBonus: [4, 8],
     ranged: {
       range: 250,
-      damage: [16, 24],
+      damage: [8, 32],
       reload: [5.5, 7.0],
       projectileSpeed: 320,
       arcHeight: 14,
@@ -121,7 +121,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     radius: 9,
     mounted: true,
     pike: false,
-    chargeBonus: [22, 32],
+    chargeBonus: [80, 120],
     ranged: null,
   },
   cavalry: {
@@ -136,7 +136,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     radius: 9,
     mounted: true,
     pike: false,
-    chargeBonus: [14, 22],
+    chargeBonus: [55, 90],
     ranged: null,
   },
 };

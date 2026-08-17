@@ -98,6 +98,9 @@ export class Squad {
   inMelee = false;
   // True from the charge order until impact or arrival.
   charging = false;
+  // Seconds left in the impact window: charge-bonus swings only land this long
+  // after the crash, so a charge kills the men it HIT, not someone 20s later.
+  chargeImpactClock = 0;
   // A squad that has rallied once flees for good the next time it breaks.
   rallied = false;
   // Seconds of breathing room accumulated while routing; battle drives this.
@@ -193,6 +196,20 @@ export class Squad {
   /** Break into a charge toward the current order. Ends on impact or arrival. */
   startCharge(): void {
     if (this.state === 'steady') this.charging = true;
+  }
+
+  /** Standing with nothing to do (halted, steady, out of contact). */
+  isIdle(): boolean {
+    return this.state === 'steady' && this.orderX === null && !this.inMelee;
+  }
+
+  /** Pivot the whole formation toward an angle — used to front toward threats while idle. */
+  faceToward(angle: number, dt: number): void {
+    let diff = angle - this.facing;
+    while (diff > Math.PI) diff -= Math.PI * 2;
+    while (diff < -Math.PI) diff += Math.PI * 2;
+    const maxTurn = TURN_RATE * 0.5 * dt;
+    this.facing += Math.abs(diff) <= maxTurn ? diff : Math.sign(diff) * maxTurn;
   }
 
   private rebuildFlow(world: World): void {
@@ -319,9 +336,10 @@ export class Squad {
         (this.orderX - this.flowTargetX) ** 2 + (this.orderY - this.flowTargetY) ** 2;
       if (drift > 100 * 100) this.rebuildFlow(world);
       // Advance until the soldiers actually collide; then hold the anchor and
-      // let the pile-in fight. Halting at a fixed distance from the enemy anchor
-      // left the front ranks just outside sword reach, staring.
-      if (this.inMelee) {
+      // let the pile-in fight. Exception: during the charge-impact window the
+      // formation keeps driving THROUGH the enemy — a charge penetrates the
+      // ranks, it doesn't tap the front row and stop.
+      if (this.inMelee && this.chargeImpactClock <= 0) {
         this.speed = 0; // the crash of contact eats the momentum
         return;
       }
@@ -373,12 +391,17 @@ export class Squad {
 
     // Wheel: barely advance while facing is far off, full speed once lined up.
     const alignment = Math.max(0.15, Math.cos(diff));
+    // Horses tangled in a melee press can barely maneuver — extracting cavalry
+    // mid-fight is slow and costly. That's the strategic price of a charge.
+    // (Not during the impact window: momentum still carries them through.)
+    const bogged = this.inMelee && this.unitType.mounted && this.chargeImpactClock <= 0 ? 0.35 : 1;
     const maxSpeed =
       MARCH_SPEED *
       this.unitType.speedMult *
       FORMATION_SPEED[this.formation] *
       world.speedAt(this.anchorX, this.anchorY) *
       alignment *
+      bogged *
       (this.charging ? CHARGE_SPEED_MULT : 1);
 
     // Momentum: ramp toward the cap, and brake ahead of the stop point so the
@@ -475,8 +498,16 @@ export class Squad {
       // Wading through trees cuts speed; a fleeing man finds an extra step.
       let paceMult = routing ? 1.1 : this.charging ? CHARGE_SOLDIER_SPEED_MULT : 1;
       if (engaged) {
-        // Trading blows = shuffling footwork; closing in = a hustle, not a sprint.
-        paceMult = rawDist < this.unitType.meleeReach * 2 ? FIGHTING_SPEED_MULT : SURGE_SPEED_MULT;
+        if (this.chargeImpactClock > 0 && s.chargeBonus) {
+          // Momentum carries the charger onto his next victim.
+          paceMult = 1.1;
+        } else {
+          // Trading blows = shuffling footwork; closing in = a hustle, not a sprint.
+          // A horse in the press is nearly immobile.
+          const bog = this.unitType.mounted ? 0.6 : 1;
+          paceMult =
+            (rawDist < this.unitType.meleeReach * 2 ? FIGHTING_SPEED_MULT : SURGE_SPEED_MULT) * bog;
+        }
       }
       const targetSpeed =
         SOLDIER_MAX_SPEED *
