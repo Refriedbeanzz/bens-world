@@ -170,6 +170,23 @@ export class Battle {
   // contact, the whole squad acquires out to SURGE and piles into the fight —
   // no more back ranks standing around watching the front rank brawl.
   private combat(dt: number): void {
+    // Gang-up census (last tick's targets): how many attackers press each victim.
+    // A mobbed soldier can't parry five blades — every extra attacker past the
+    // first adds +30% damage taken, capped at 2.5x.
+    const attackersOn = new Map<number, number>();
+    for (const squad of this.squads) {
+      if (squad.state !== 'steady') continue;
+      for (const s of squad.soldiers) {
+        if (s.targetId === 0) continue;
+        const t = this.soldierById.get(s.targetId);
+        if (!t || t.hp <= 0) continue;
+        const d2 = (t.x - s.x) ** 2 + (t.y - s.y) ** 2;
+        if (d2 <= (MELEE_REACH * 1.6) ** 2) {
+          attackersOn.set(s.targetId, (attackersOn.get(s.targetId) ?? 0) + 1);
+        }
+      }
+    }
+
     for (const squad of this.squads) {
       if (squad.state !== 'steady') {
         squad.inMelee = false;
@@ -217,6 +234,8 @@ export class Battle {
               dmg += this.rng.int(12, 18);
               s.chargeBonus = false;
             }
+            const gang = attackersOn.get(target.id) ?? 1;
+            dmg = Math.round(dmg * Math.min(2.5, 1 + 0.3 * Math.max(0, gang - 1)));
             target.hp -= dmg;
             s.cooldown = this.rng.range(1.4, 2.0);
           }
