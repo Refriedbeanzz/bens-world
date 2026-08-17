@@ -1,4 +1,4 @@
-import { Container, Graphics, RenderTexture, Sprite, type Renderer } from 'pixi.js';
+import { Container, Graphics, RenderTexture, Sprite, Texture, type Renderer } from 'pixi.js';
 import { Rng } from '../sim/rng';
 import { CELL, GRID_W, GRID_H, type World } from '../sim/world';
 import { OUTLINE, paintedShade, specular, wobblyCircle, wobblyLine } from './style';
@@ -155,13 +155,24 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
     return Math.min(1, Math.max(0, (dirtNoise(u, v) - 0.52) / 0.32));
   };
 
-  const g = new Graphics();
-  // Base wash at half-cell resolution with continuous (not per-cell-snapped)
-  // sampling — colors drift smoothly across a tile instead of stepping at
-  // cell boundaries, the biggest single fix for the layers reading as blended.
-  const SUB = CELL / 2;
-  for (let py = SUB / 2; py < world.heightPx; py += SUB) {
-    for (let px = SUB / 2; px < world.widthPx; px += SUB) {
+  // Ground base: computed on a real <canvas> at one texel per few world px,
+  // then displayed through GPU LINEAR texture filtering when stretched up to
+  // full size. This is the actual fix for "no visible blocks" — Graphics
+  // rects are always flat-filled polygons, so tiling them finer only makes
+  // the seams smaller, never zero. A filtered texture interpolates
+  // CONTINUOUSLY between samples; there is no tile edge left to see.
+  const TEXEL = 5;
+  const tw = Math.ceil(world.widthPx / TEXEL);
+  const th = Math.ceil(world.heightPx / TEXEL);
+  const groundCanvas = document.createElement('canvas');
+  groundCanvas.width = tw;
+  groundCanvas.height = th;
+  const gctx = groundCanvas.getContext('2d')!;
+  const img = gctx.createImageData(tw, th);
+  for (let ty = 0; ty < th; ty++) {
+    for (let tx = 0; tx < tw; tx++) {
+      const px = (tx + 0.5) * TEXEL;
+      const py = (ty + 0.5) * TEXEL;
       const u = px / world.widthPx;
       const v = py / world.heightPx;
       const h = world.heightAt(px, py);
@@ -207,9 +218,25 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
         }
         color = lerpColor(color, waterColor, Math.min(1, wetness / 0.05));
       }
-      g.rect(px - SUB / 2, py - SUB / 2, SUB, SUB).fill(color);
+
+      const i = (ty * tw + tx) * 4;
+      img.data[i] = (color >> 16) & 0xff;
+      img.data[i + 1] = (color >> 8) & 0xff;
+      img.data[i + 2] = color & 0xff;
+      img.data[i + 3] = 255;
     }
   }
+  gctx.putImageData(img, 0, 0);
+  const groundTexture = Texture.from(groundCanvas);
+  groundTexture.source.scaleMode = 'linear';
+  const groundSprite = new Sprite(groundTexture);
+  groundSprite.width = world.widthPx;
+  groundSprite.height = world.heightPx;
+
+  const compose = new Container();
+  compose.addChild(groundSprite);
+  const g = new Graphics();
+  compose.addChild(g);
 
   // Grass-blade brush pass: short angled strokes over open ground, tinted
   // toward dirt or grass by the SAME field the base wash reads — a stroke
@@ -504,8 +531,8 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   }
 
   const texture = RenderTexture.create({ width: world.widthPx, height: world.heightPx });
-  renderer.render({ container: g, target: texture });
-  g.destroy();
+  renderer.render({ container: compose, target: texture });
+  compose.destroy({ children: true });
   return new Sprite(texture);
 }
 
