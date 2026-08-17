@@ -35,6 +35,12 @@ const SHATTER_CASUALTY_FRACTION = 0.7;
 const CHARGE_SPEED_MULT = 1.8;
 const CHARGE_ACCEL_MULT = 1.7;
 const CHARGE_SOLDIER_SPEED_MULT = 1.6;
+// Mounted charges: a higher top gear (~3.7x infantry march at full gallop) but
+// built at NORMAL acceleration — a gallop takes real time and ground to develop.
+const MOUNTED_CHARGE_SPEED_MULT = 2.3;
+const MOUNTED_CHARGE_ACCEL_MULT = 1.0;
+// Horses wedged in a melee press are far less nimble than men on foot.
+const MOUNTED_MELEE_BOG = 0.35;
 // Stances: how far men range from the formation to fight. Defensive squads hold
 // their ranks; offensive squads hunt. Some formations imply a stance by default.
 export type Stance = 'defensive' | 'balanced' | 'offensive';
@@ -271,7 +277,8 @@ export class Squad {
 
   /** Top speed of a full charge for this squad in its current formation. */
   fullChargeSpeed(): number {
-    return MARCH_SPEED * this.unitType.speedMult * FORMATION_SPEED[this.formation] * CHARGE_SPEED_MULT;
+    const mult = this.unitType.mounted ? MOUNTED_CHARGE_SPEED_MULT : CHARGE_SPEED_MULT;
+    return MARCH_SPEED * this.unitType.speedMult * FORMATION_SPEED[this.formation] * mult;
   }
 
   /** Standing with nothing to do (halted, steady, out of contact). */
@@ -507,6 +514,11 @@ export class Squad {
     // mid-fight is slow and costly. That's the strategic price of a charge.
     // (Not during the impact window: momentum still carries them through.)
     const bogged = this.inMelee && this.unitType.mounted && this.chargeImpactClock <= 0 ? 0.35 : 1;
+    const chargeMult = this.charging
+      ? this.unitType.mounted
+        ? MOUNTED_CHARGE_SPEED_MULT
+        : CHARGE_SPEED_MULT
+      : 1;
     const maxSpeed =
       MARCH_SPEED *
       this.unitType.speedMult *
@@ -514,7 +526,7 @@ export class Squad {
       world.speedAt(this.anchorX, this.anchorY) *
       alignment *
       bogged *
-      (this.charging ? CHARGE_SPEED_MULT : 1);
+      chargeMult;
 
     // Momentum: ramp toward the cap, and brake ahead of the stop point so the
     // formation eases in rather than stopping on a dime. For an attack order the
@@ -522,8 +534,12 @@ export class Squad {
     const brakeDist = (this.speed * this.speed) / (2 * MARCH_DECEL);
     const targetSpeed = !this.attackTarget && dist <= brakeDist ? 0 : maxSpeed;
     if (this.speed < targetSpeed) {
-      const accel = MARCH_ACCEL * (this.charging ? CHARGE_ACCEL_MULT : 1);
-      this.speed = Math.min(targetSpeed, this.speed + accel * dt);
+      const accelMult = this.charging
+        ? this.unitType.mounted
+          ? MOUNTED_CHARGE_ACCEL_MULT
+          : CHARGE_ACCEL_MULT
+        : 1;
+      this.speed = Math.min(targetSpeed, this.speed + MARCH_ACCEL * accelMult * dt);
     } else {
       this.speed = Math.max(targetSpeed, this.speed - MARCH_DECEL * dt);
     }
@@ -611,12 +627,13 @@ export class Squad {
       let paceMult = routing ? 1.1 : this.charging ? CHARGE_SOLDIER_SPEED_MULT : 1;
       if (engaged) {
         if (this.chargeImpactClock > 0 && s.chargeBonus) {
-          // Momentum carries the charger onto his next victim.
-          paceMult = 1.1;
+          // Momentum carries the charger onto his next victim — but he's crashing
+          // through a crowd, not on open ground.
+          paceMult = 0.85;
         } else {
           // Trading blows = shuffling footwork; closing in = a hustle, not a sprint.
           // A horse in the press is nearly immobile.
-          const bog = this.unitType.mounted ? 0.6 : 1;
+          const bog = this.unitType.mounted ? MOUNTED_MELEE_BOG : 1;
           paceMult =
             (rawDist < this.unitType.meleeReach * 2 ? FIGHTING_SPEED_MULT : SURGE_SPEED_MULT) * bog;
         }
