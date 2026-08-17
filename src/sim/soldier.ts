@@ -32,4 +32,6 @@ export interface Soldier {
   cooldown: number;
   // routed soldier that made it off the map edge
   escaped: boolean;
+  // armed by a charge impact: the next swing deals bonus damage
+  chargeBonus: boolean;
 }

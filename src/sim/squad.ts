@@ -21,6 +21,11 @@ const MARCH_DECEL = 40; // px/s²
 const AVOID_LOOKAHEAD = 70; // how far ahead a soldier scans for an obstacle in his way
 // A squad breaks and runs after losing this fraction of its starting men.
 const ROUT_CASUALTY_FRACTION = 0.4;
+// Charging: much faster, hits harder on impact — and (later) more vulnerable to
+// arrows and formation counters like braced pikes. Read `charging` for those.
+const CHARGE_SPEED_MULT = 1.8;
+const CHARGE_ACCEL_MULT = 1.7;
+const CHARGE_SOLDIER_SPEED_MULT = 1.6;
 
 export type SquadState = 'steady' | 'routing';
 export type SoldierLookup = (id: number) => Soldier | undefined;
@@ -65,6 +70,8 @@ export class Squad {
   // True while the squad is in melee contact — set by the battle's combat pass.
   // Unengaged soldiers of an in-melee squad surge in instead of holding slots.
   inMelee = false;
+  // True from the charge order until impact or arrival.
+  charging = false;
   anchorX: number;
   anchorY: number;
   facing: number;
@@ -114,6 +121,7 @@ export class Squad {
         targetId: 0,
         cooldown: 0,
         escaped: false,
+        chargeBonus: false,
       });
     }
   }
@@ -135,6 +143,11 @@ export class Squad {
 
   isAttacking(target?: Squad): boolean {
     return target ? this.attackTarget === target : this.attackTarget !== null;
+  }
+
+  /** Break into a charge toward the current order. Ends on impact or arrival. */
+  startCharge(): void {
+    if (this.state === 'steady') this.charging = true;
   }
 
   private rebuildFlow(world: World): void {
@@ -240,6 +253,7 @@ export class Squad {
 
     if (this.orderX === null || this.orderY === null) {
       this.speed = 0;
+      this.charging = false;
       return;
     }
     const dx = this.orderX - this.anchorX;
@@ -253,6 +267,7 @@ export class Squad {
         // Keep the flow field: stragglers still stuck behind trees use it to find their slots.
       }
       this.speed = 0;
+      this.charging = false;
       return;
     }
 
@@ -278,7 +293,11 @@ export class Squad {
     // Wheel: barely advance while facing is far off, full speed once lined up.
     const alignment = Math.max(0.15, Math.cos(diff));
     const maxSpeed =
-      MARCH_SPEED * FORMATION_SPEED[this.formation] * world.speedAt(this.anchorX, this.anchorY) * alignment;
+      MARCH_SPEED *
+      FORMATION_SPEED[this.formation] *
+      world.speedAt(this.anchorX, this.anchorY) *
+      alignment *
+      (this.charging ? CHARGE_SPEED_MULT : 1);
 
     // Momentum: ramp toward the cap, and brake ahead of the stop point so the
     // formation eases in rather than stopping on a dime. For an attack order the
@@ -286,7 +305,8 @@ export class Squad {
     const brakeDist = (this.speed * this.speed) / (2 * MARCH_DECEL);
     const targetSpeed = !this.attackTarget && dist <= brakeDist ? 0 : maxSpeed;
     if (this.speed < targetSpeed) {
-      this.speed = Math.min(targetSpeed, this.speed + MARCH_ACCEL * dt);
+      const accel = MARCH_ACCEL * (this.charging ? CHARGE_ACCEL_MULT : 1);
+      this.speed = Math.min(targetSpeed, this.speed + accel * dt);
     } else {
       this.speed = Math.max(targetSpeed, this.speed - MARCH_DECEL * dt);
     }
@@ -364,7 +384,7 @@ export class Squad {
 
       // Arrive: full speed when far from the goal, easing to a stop on it.
       // Wading through trees cuts speed; a fleeing man finds an extra step.
-      const panic = routing ? 1.1 : 1;
+      const panic = routing ? 1.1 : this.charging ? CHARGE_SOLDIER_SPEED_MULT : 1;
       const targetSpeed = SOLDIER_MAX_SPEED * Math.min(1, dist / 30) * world.speedAt(s.x, s.y) * panic;
       const desiredVx = dx * targetSpeed;
       const desiredVy = dy * targetSpeed;

@@ -156,6 +156,11 @@ export class Battle {
         for (const s of squad.soldiers) {
           if (this.grid.nearestEnemy(s.x, s.y, s.team, contactRange)) {
             squad.inMelee = true;
+            // Charge impact: momentum converts into bonus damage on first swings.
+            if (squad.charging) {
+              squad.charging = false;
+              for (const cs of squad.soldiers) cs.chargeBonus = true;
+            }
             break;
           }
         }
@@ -181,7 +186,12 @@ export class Battle {
         if (d2 <= MELEE_REACH * MELEE_REACH) {
           s.cooldown -= dt;
           if (s.cooldown <= 0) {
-            target.hp -= this.rng.int(7, 11);
+            let dmg = this.rng.int(7, 11);
+            if (s.chargeBonus) {
+              dmg += this.rng.int(12, 18);
+              s.chargeBonus = false;
+            }
+            target.hp -= dmg;
             s.cooldown = this.rng.range(1.4, 2.0);
           }
         }
