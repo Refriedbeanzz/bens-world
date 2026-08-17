@@ -79,12 +79,13 @@ function conifer(g: Graphics, rng: Rng, cx: number, cy: number, r: number, color
 function drawRootFlare(g: Graphics, rng: Rng, x: number, y: number, tier: TreeTier, species: TreeSpecies): number {
   const trunkR = tier === 'large' ? 0.24 : tier === 'medium' ? 0.16 : 0.11;
   wobblyCircle(g, rng, x, y, trunkR * 22, species.bark, species.barkDark, 0.8);
-  if (tier === 'large') {
-    const flares = rng.int(4, 6);
-    for (let i = 0; i < flares; i++) {
-      const a = (i / flares) * Math.PI * 2 + rng.range(-0.2, 0.2);
-      wobblyLine(g, rng, x, y, x + Math.cos(a) * trunkR * 40, y + Math.sin(a) * trunkR * 40, 1.1, species.barkDark);
-    }
+  // Visible branching roots at the base — every tree gets a couple of short
+  // exposed root tendrils, large/old trees get a full radiating flare.
+  const flares = tier === 'large' ? rng.int(4, 6) : tier === 'medium' ? rng.int(2, 4) : rng.int(1, 2);
+  const flareLen = tier === 'large' ? 40 : tier === 'medium' ? 28 : 18;
+  for (let i = 0; i < flares; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    wobblyLine(g, rng, x, y, x + Math.cos(a) * trunkR * flareLen, y + Math.sin(a) * trunkR * flareLen, 1.0, species.barkDark);
   }
   return trunkR * 22;
 }

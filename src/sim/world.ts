@@ -381,8 +381,10 @@ export class World {
       const cy = rng.range(this.heightPx * 0.08, this.heightPx * 0.92);
       // Keep the middle third of the field mostly open so armies have room to meet.
       const inCenter = cx > this.widthPx * 0.38 && cx < this.widthPx * 0.62;
-      const trees = inCenter ? rng.int(2, 4) : rng.int(5, 12);
-      const spread = rng.range(60, 140);
+      // Tighter, denser motts — packed clumps of overlapping crowns read
+      // as a real wood, not scattered individual trees.
+      const trees = inCenter ? rng.int(2, 4) : rng.int(8, 18);
+      const spread = rng.range(45, 105);
       for (let t = 0; t < trees; t++) {
         const angle = rng.range(0, Math.PI * 2);
         const dist = spread * Math.sqrt(rng.next());

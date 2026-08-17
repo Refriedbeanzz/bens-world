@@ -226,6 +226,10 @@ console.log('S5: forest march');
     Math.hypot(squad.anchorX - tx, squad.anchorY - ty) < 40,
     `S5: squad never arrived (anchor ${Math.hypot(squad.anchorX - tx, squad.anchorY - ty).toFixed(0)}px away)`,
   );
+  // A straggler can still be a few px from home right when the squad's
+  // formation-anchor arrives — squad.speed tracks the ANCHOR, not individual
+  // soldiers, so give a fixed grace window for the last soldier to catch up.
+  for (let i = 0; i < 10 * 30; i++) battle.tick(DT);
   let worst = 0;
   for (const s of squad.soldiers) {
     const [sx, sy] = squad.slotWorld(s.slot);

@@ -78,6 +78,31 @@ function losPassable(world: World, x0: number, y0: number, x1: number, y1: numbe
   return world.lineWalkable(x0, y0, x1, y1);
 }
 
+/**
+ * If (x, y) sits inside a rock's true PHYSICAL collision radius, push it
+ * radially outward to just clear it. Pathfinding's "blocked" cell flag is
+ * cell-grid granularity (32px), coarser than the exact pixel radius the
+ * hard-collision pass enforces — a formation slot can land in a gap that
+ * pathfinding sees as open but physics doesn't, sending a soldier into an
+ * endless fight between "steer onto the slot" and "the rock is shoving me
+ * back out" that never settles. Checking the exact radius here, at the
+ * point the steering TARGET is chosen, fixes it at the source.
+ */
+function clampOutOfRocks(world: World, x: number, y: number, clearance: number): [number, number] {
+  for (const o of world.obstacles) {
+    if (o.kind !== 'rock') continue;
+    const min = o.radius + clearance;
+    const dx = x - o.x;
+    const dy = y - o.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 >= min * min) continue;
+    const d = Math.sqrt(d2) || 1;
+    x = o.x + (dx / d) * min;
+    y = o.y + (dy / d) * min;
+  }
+  return [x, y];
+}
+
 // If the desired direction runs into solid terrain (deep water, cliffs) just
 // ahead, rotate toward the nearest clear heading — soldiers slide along a bank
 // instead of grinding into it.
@@ -598,6 +623,7 @@ export class Squad {
         const jitter = FORMATION_JITTER[this.formation];
         slotX += s.jitterX * jitter;
         slotY += s.jitterY * jitter;
+        [slotX, slotY] = clampOutOfRocks(world, slotX, slotY, s.radius + 2);
         tx = slotX;
         ty = slotY;
         // A slot sitting IN the river/cliff, or across one, can never be reached

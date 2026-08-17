@@ -38,10 +38,12 @@ const PALETTES: Record<
   string,
   { dark: number; light: number; dirt: number; grassDensity: number; bushDensity: number }
 > = {
-  meadow: { dark: 0x2e5122, light: 0x486e34, dirt: 0x6c5c3e, grassDensity: 0.26, bushDensity: 1 },
-  steppe: { dark: 0x5c5730, light: 0x83773f, dirt: 0x76684a, grassDensity: 0.14, bushDensity: 0.5 },
-  forest: { dark: 0x294a20, light: 0x3d6030, dirt: 0x5c4f38, grassDensity: 0.38, bushDensity: 1.6 },
+  meadow: { dark: 0x3f7228, light: 0x74ab3c, dirt: 0x8a7040, grassDensity: 0.26, bushDensity: 1 },
+  steppe: { dark: 0x6e7038, light: 0x9ba24c, dirt: 0x8c7a52, grassDensity: 0.14, bushDensity: 0.5 },
+  forest: { dark: 0x2f5a26, light: 0x4c7c38, dirt: 0x685840, grassDensity: 0.38, bushDensity: 1.6 },
 };
+const SAND = 0xcbb579;
+const SAND_WET = 0xb09b5e;
 const CLIFF_COLOR = 0x574e42;
 const CLIFF_DARK = 0x3a332a;
 
@@ -181,19 +183,29 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.1);
       const hillWarm = Math.min(1, Math.max(0, (h - 0.56) / 0.32));
       if (hillWarm > 0) color = lerpColor(color, 0xcdbb78, hillWarm * 0.22); // elevation wash
-      color = shade(color, bright * 0.86);
+      color = shade(color, bright * 0.99); // vivid saturated grass, not muddied down
 
       const cliffT = world.cliffAt(px, py);
       if (cliffT > 0.02) {
         const cliffColor = shade(lerpColor(CLIFF_DARK, CLIFF_COLOR, speckle.next()), 0.75 + h * 0.45);
         color = lerpColor(color, cliffColor, Math.min(1, cliffT * 1.5));
       }
+      // Wetness band: grass -> a real visible SAND shore (not just a fade
+      // into water) -> shallow -> deep. A soft fade only right at the outer
+      // edge keeps the sand from snapping on at a hard pixel line.
       const wetness = world.waterAt(px, py);
-      if (wetness > 0.02) {
+      if (wetness > 0.015) {
         const shallow = shade(lerpColor(0x3f6e80, 0x568897, grassNoise(u, v)), 1.0);
         const deep = shade(lerpColor(0x1d3c58, 0x2a5070, grassNoise(u, v)), 0.95);
-        const waterColor = wetness < 0.55 ? lerpColor(color, shallow, wetness / 0.55) : lerpColor(shallow, deep, (wetness - 0.55) / 0.45);
-        color = lerpColor(color, waterColor, Math.min(1, wetness * 1.35));
+        let waterColor: number;
+        if (wetness < 0.38) {
+          waterColor = lerpColor(color, SAND, Math.min(1, wetness / 0.3));
+        } else if (wetness < 0.58) {
+          waterColor = lerpColor(SAND_WET, shallow, (wetness - 0.38) / 0.2);
+        } else {
+          waterColor = lerpColor(shallow, deep, Math.min(1, (wetness - 0.58) / 0.42));
+        }
+        color = lerpColor(color, waterColor, Math.min(1, wetness / 0.05));
       }
       g.rect(px - SUB / 2, py - SUB / 2, SUB, SUB).fill(color);
     }
@@ -264,6 +276,26 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
     g.poly(pts).fill({ color: warm ? pal.dirt : pal.light, alpha: 0.04 });
   }
 
+  // Fine wildflower dusting: tiny scattered red/pink flecks across the whole
+  // meadow, distinct from the fuller wildflower clumps — a light speckle of
+  // color across the grass rather than only in patches.
+  if (world.spec.biome === 'meadow') {
+    const fleckRng = new Rng(world.seed ^ 0x6f2c14);
+    const fleckColors = [0xb8404a, 0xd85868, 0xd8c24a];
+    const fleckCount = Math.round(GRID_W * GRID_H * 0.5);
+    for (let i = 0; i < fleckCount; i++) {
+      const px = fleckRng.range(0, world.widthPx);
+      const py = fleckRng.range(0, world.heightPx);
+      const cx = Math.floor(px / CELL);
+      const cy = Math.floor(py / CELL);
+      if (!isOpenGround(world, cx, cy)) continue;
+      g.circle(px, py, fleckRng.range(0.5, 1.0)).fill({
+        color: fleckColors[fleckRng.int(0, fleckColors.length - 1)]!,
+        alpha: fleckRng.range(0.35, 0.6),
+      });
+    }
+  }
+
   // Grass tufts: small multi-blade clumps, density set by biome and thinned
   // over dirt-leaning ground (tufts don't grow on a worn patch) — the same
   // field driving every other layer, so patches read as ONE dry spot instead
@@ -283,7 +315,7 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
     if (!isOpenGround(world, cx, cy)) continue;
     const dirtT = dirtLeanAt(px, py);
     if (tuftRng.next() < dirtT * 0.8) continue;
-    if (biomePlants.length > 0 && tuftRng.next() < 0.16) {
+    if (biomePlants.length > 0 && tuftRng.next() < 0.26) {
       const species = biomePlants[tuftRng.int(0, biomePlants.length - 1)]!;
       drawPlant(g, tuftRng, px, py, tuftRng.range(0.8, 1.2), species);
       continue;
