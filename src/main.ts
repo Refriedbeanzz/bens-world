@@ -1,7 +1,7 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import { startLoop } from './core/loop';
 import { Battle } from './sim/battle';
-import { formationSpacing, type FormationKind } from './sim/formation';
+import { formationSpacing, layoutSlots, type FormationKind } from './sim/formation';
 import type { Squad, Stance } from './sim/squad';
 import { Camera } from './render/camera';
 import { drawProjectiles, SoldierLayer } from './render/soldiers';
@@ -87,6 +87,7 @@ async function boot(): Promise<void> {
   let rightStart: { x: number; y: number } | null = null;
   let rightNow: { x: number; y: number } | null = null;
   let lineDragging = false;
+  let lineFlip = false; // Tab while dragging flips which way the line faces
   let flankMode = false;
 
   const clampX = (x: number) => Math.min(world.widthPx - 40, Math.max(40, x));
@@ -150,29 +151,48 @@ async function boot(): Promise<void> {
       px = -px;
       py = -py;
     }
+    if (lineFlip) {
+      px = -px;
+      py = -py;
+    }
     return { sx, sy, L, dirX, dirY, px, py, facing: Math.atan2(py, px) };
   };
 
-  const issueLineOrder = (sw: [number, number], ew: [number, number]): void => {
-    if (selected.size === 0) return;
+  // The full plan for a dragged battle line: where each squad's anchor lands and
+  // how wide it forms. Shared by the ghost preview and the real order, so the
+  // preview IS the order.
+  const planLineOrder = (sw: [number, number], ew: [number, number]) => {
     const g = lineOrderGeometry(sw, ew);
-    if (g.L < LINE_ORDER_MIN) {
-      issueOrder(...sw);
-      return;
-    }
-    // Squads take segments along the line in their current left-to-right order.
+    if (g.L < LINE_ORDER_MIN || selected.size === 0) return null;
     const order = [...selected].sort(
       (a, b) => (a.anchorX * g.dirX + a.anchorY * g.dirY) - (b.anchorX * g.dirX + b.anchorY * g.dirY),
     );
     const seg = g.L / order.length;
-    order.forEach((squad, i) => {
+    const placements = order.map((squad, i) => {
       const along = seg * (i + 0.5);
-      const ax = g.sx + g.dirX * along;
-      const ay = g.sy + g.dirY * along;
       const spacing = formationSpacing(squad.formation) * (squad.unitType.radius / 7);
-      squad.setWidth((seg * 0.92) / spacing);
-      squad.orderMove(clampX(ax), clampY(ay), battle.world, g.facing);
+      const cols = Math.min(squad.soldiers.length, Math.max(2, Math.round((seg * 0.92) / spacing)));
+      return {
+        squad,
+        ax: clampX(g.sx + g.dirX * along),
+        ay: clampY(g.sy + g.dirY * along),
+        cols,
+      };
     });
+    return { g, placements };
+  };
+
+  const issueLineOrder = (sw: [number, number], ew: [number, number]): void => {
+    const plan = planLineOrder(sw, ew);
+    if (!plan) {
+      issueOrder(...sw);
+      return;
+    }
+    for (const p of plan.placements) {
+      p.squad.setWidth(p.cols);
+      p.squad.orderMove(p.ax, p.ay, battle.world, plan.g.facing);
+    }
+    const { g } = plan;
     showMarker(g.sx + (g.dirX * g.L) / 2, g.sy + (g.dirY * g.L) / 2, 0xf0e8c0);
   };
 
@@ -185,6 +205,7 @@ async function boot(): Promise<void> {
       rightStart = { x: e.clientX, y: e.clientY };
       rightNow = rightStart;
       lineDragging = false;
+      lineFlip = false;
     }
   });
 
@@ -282,6 +303,11 @@ async function boot(): Promise<void> {
   };
 
   window.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab' && lineDragging) {
+      e.preventDefault();
+      lineFlip = !lineFlip;
+      return;
+    }
     if (e.key === 'Escape') {
       selected.clear();
       flankMode = false;
@@ -423,22 +449,35 @@ async function boot(): Promise<void> {
         }
       }
 
-      // Battle-line ghost while right-dragging.
+      // Battle-line ghost while right-dragging: one dot per soldier, exactly
+      // where he will stand (same math as the real order), plus a facing arrow.
       ghostLayer.clear();
       if (lineDragging && rightStart && rightNow && selected.size > 0) {
         const sw = camera.screenToWorld(rightStart.x, rightStart.y);
         const ew = camera.screenToWorld(rightNow.x, rightNow.y);
-        const g = lineOrderGeometry(sw, ew);
-        if (g.L >= LINE_ORDER_MIN) {
-          ghostLayer
-            .moveTo(g.sx, g.sy)
-            .lineTo(g.sx + g.dirX * g.L, g.sy + g.dirY * g.L)
-            .stroke({ width: 3, color: 0xf0e8c0, alpha: 0.75 });
-          // Tick marks where files will stand; arrow showing the facing.
-          for (let d = 11; d < g.L; d += 22) {
-            ghostLayer
-              .circle(g.sx + g.dirX * d, g.sy + g.dirY * d, 3)
-              .fill({ color: 0xf0e8c0, alpha: 0.55 });
+        const plan = planLineOrder(sw, ew);
+        if (plan) {
+          const { g } = plan;
+          const fx = Math.cos(g.facing);
+          const fy = Math.sin(g.facing);
+          const rx = -fy;
+          const ry = fx;
+          for (const p of plan.placements) {
+            const slots = layoutSlots(
+              p.squad.formation,
+              p.squad.soldiers.length,
+              p.squad.unitType.radius / 7,
+              p.cols,
+            );
+            for (const slot of slots) {
+              ghostLayer
+                .circle(
+                  p.ax + rx * slot.lateral - fx * slot.depth,
+                  p.ay + ry * slot.lateral - fy * slot.depth,
+                  p.squad.unitType.radius * 0.75,
+                )
+                .fill({ color: 0xf0e8c0, alpha: 0.3 });
+            }
           }
           const mx = g.sx + (g.dirX * g.L) / 2;
           const my = g.sy + (g.dirY * g.L) / 2;
