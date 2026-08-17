@@ -8,7 +8,6 @@ import {
   fringeDots,
   grainLines,
   grime,
-  HORSE_BROWN,
   LEATHER,
   OUTLINE,
   rivets,
@@ -21,9 +20,26 @@ import {
   wobblyCircle,
   wobblyEllipse,
   wobblyLine,
+  type TeamPalette,
 } from './style';
 
 const GAMBESON = 0xb08a52; // padded linen undercoat, peeking at the collar
+
+// Visual variety: every soldier deterministically gets one of VARIANT_COUNT
+// looks (helmet style, livery pattern, horse coat) so a formation doesn't
+// read as stamped clones. Picked from the soldier's id — stable across
+// frames and recoverable later for his corpse without storing extra state.
+export const VARIANT_COUNT = 4;
+export function hashVariant(id: number): number {
+  let t = Math.imul(id, 2654435761) >>> 0;
+  t ^= t >>> 15;
+  t = Math.imul(t, 2246822519) >>> 0;
+  // Force unsigned before mod — XOR reinterprets as signed int32 and a
+  // negative operand here would give a negative (invalid) array index.
+  return ((t ^ (t >>> 13)) >>> 0) % VARIANT_COUNT;
+}
+
+const HORSE_COATS = [0x5a3d24, 0x2a221c, 0x6e3624, 0x7c766a]; // bay, black, chestnut, grey
 
 const HIGHLIGHT = 0xf2ead6;
 const SHADOW = 0x1c150e;
@@ -92,7 +108,48 @@ function bake(renderer: Renderer, seed: number, draw: (g: Graphics, rng: Rng) =>
 
 // --- Bodies (armless), drawn facing +x ---
 
-function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number): void {
+// A livery pattern on the surcoat (and matching shield emblem), bounded
+// well inside the surcoat's radius so it never pokes past the round outline.
+function surcoatPattern(g: Graphics, r: number, t: TeamPalette, variant: number): void {
+  switch (variant % 4) {
+    case 0: {
+      // quartered: one heraldic quarter, following the coat's own arc
+      const quarter: number[] = [0, 0];
+      for (let i = 0; i <= 6; i++) {
+        const a = (i / 6) * (Math.PI / 2);
+        quarter.push(Math.cos(a) * r * 0.78, Math.sin(a) * r * 0.78);
+      }
+      g.poly(quarter).fill({ color: t.clothDark, alpha: 0.65 });
+      break;
+    }
+    case 1: {
+      // cross throughout
+      g.rect(-r * 0.11, -r * 0.62, r * 0.22, r * 1.24).fill({ color: t.clothDark, alpha: 0.65 });
+      g.rect(-r * 0.62, -r * 0.11, r * 1.24, r * 0.22).fill({ color: t.clothDark, alpha: 0.65 });
+      break;
+    }
+    case 2: {
+      // bend (diagonal band), inset well inside the radius
+      const cos45 = Math.SQRT1_2;
+      const hl = r * 0.5;
+      const hw = r * 0.14;
+      const dx = cos45 * hl;
+      const dy = cos45 * hl;
+      const px = cos45 * hw;
+      const py = -cos45 * hw;
+      g.poly([-dx - px, -dy - py, -dx + px, -dy + py, dx + px, dy + py, dx - px, dy - py]).fill({
+        color: t.clothDark,
+        alpha: 0.65,
+      });
+      break;
+    }
+    default:
+      // plain livery — no overlay pattern
+      break;
+  }
+}
+
+function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number, variant: number): void {
   const t = teamOf(team);
   const r = type.radius;
 
@@ -125,14 +182,9 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number): void
   g.circle(-r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, -r * 0.82 + Math.sin(LIGHT_A) * r * 0.12, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.4 });
   g.circle(-r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, r * 0.82 + Math.sin(LIGHT_A) * r * 0.12, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.4 });
 
-  // team surcoat, quartered heraldically, with form shading, cloth weave, and folds
+  // team surcoat, livery-patterned, with form shading, cloth weave, and folds
   wobblyCircle(g, rng, 0, 0, r * 0.8, t.cloth, t.clothDark, 1);
-  const quarter: number[] = [0, 0];
-  for (let i = 0; i <= 6; i++) {
-    const a = (i / 6) * (Math.PI / 2);
-    quarter.push(Math.cos(a) * r * 0.78, Math.sin(a) * r * 0.78);
-  }
-  g.poly(quarter).fill({ color: t.clothDark, alpha: 0.65 });
+  surcoatPattern(g, r, t, variant);
   crescent(g, 0, 0, r * 0.78, LIGHT_A, 1.15, r * 0.22, HIGHLIGHT, 0.22);
   crescent(g, 0, 0, r * 0.78, DARK_A, 1.15, r * 0.22, SHADOW, 0.2);
   grainLines(g, rng, -r * 0.15, -r * 0.3, r * 0.5, 0.5, r * 0.9, 5, t.clothDark, 0.16, 0.3);
@@ -163,31 +215,70 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number): void
       g.circle(-r * 0.98, qy, 0.35).fill(WOOD_DARK);
       g.poly([-r * 0.98, qy, -r * 1.14, qy - 0.55, -r * 1.14, qy + 0.55]).fill(t.trim);
     }
-    // mail coif, leather cap with a stitched brim
+    // mail coif, then one of 4 headwear styles
     wobblyCircle(g, rng, r * 0.18, 0, r * 0.52, STEEL_DARK, OUTLINE, 0.9);
     fringeDots(g, r * 0.18, 0, r * 0.5, Math.PI * 0.35, Math.PI * 1.65, 7, STEEL);
-    wobblyCircle(g, rng, r * 0.2, 0, r * 0.4, LEATHER, WOOD_DARK, 0.9);
-    wobblyLine(g, rng, r * 0.2, -r * 0.36, r * 0.2, r * 0.36, 0.7, WOOD_DARK);
+    switch (variant % 4) {
+      case 0: // leather cap, stitched centre ridge (hood up)
+        wobblyCircle(g, rng, r * 0.2, 0, r * 0.4, LEATHER, WOOD_DARK, 0.9);
+        wobblyLine(g, rng, r * 0.2, -r * 0.36, r * 0.2, r * 0.36, 0.7, WOOD_DARK);
+        break;
+      case 1: // hood down: flatter cap with a small folded-back brim
+        wobblyCircle(g, rng, r * 0.2, 0, r * 0.36, LEATHER, WOOD_DARK, 0.9);
+        wobblyLine(g, rng, r * 0.02, -r * 0.3, r * 0.02, r * 0.3, 0.9, WOOD_DARK); // folded hem
+        break;
+      case 2: // coif only, no cap layer — bare mail dome
+        g.circle(r * 0.18 + Math.cos(LIGHT_A) * r * 0.16, Math.sin(LIGHT_A) * r * 0.16, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.35 });
+        break;
+      default: // pointed hood, peaked at the crown
+        wobblyCircle(g, rng, r * 0.2, 0, r * 0.38, LEATHER, WOOD_DARK, 0.9);
+        g.poly([r * 0.2, -r * 0.02, r * 0.05, -r * 0.5, r * 0.35, -r * 0.3]).fill(LEATHER).stroke({ width: 0.5, color: WOOD_DARK });
+    }
     grainLines(g, rng, r * 0.2, 0, r * 0.16, 1.57, r * 0.7, 4, WOOD_DARK, 0.3, 0.3);
     g.circle(r * 0.2 + Math.cos(LIGHT_A) * r * 0.18, Math.sin(LIGHT_A) * r * 0.18, r * 0.08).fill({ color: HIGHLIGHT, alpha: 0.4 });
   } else if (type.key === 'crossbowman') {
-    // kettle helm: broad riveted brim, raised crown, dome specular
-    wobblyCircle(g, rng, r * 0.18, 0, r * 0.58, STEEL_DARK, OUTLINE, 1);
-    rivets(g, r * 0.18, 0, r * 0.53, 9, STEEL_DARK);
-    wobblyCircle(g, rng, r * 0.18, 0, r * 0.44, STEEL, STEEL_DARK, 0.9);
-    wobblyCircle(g, rng, r * 0.18, 0, r * 0.24, STEEL, STEEL_DARK, 0.7);
+    // kettle helm, one of 4 brim/crown profiles
+    const brim = [0.58, 0.66, 0.5, 0.58][variant % 4]!;
+    const crown = [0.44, 0.46, 0.4, 0.44][variant % 4]!;
+    wobblyCircle(g, rng, r * 0.18, 0, r * brim, STEEL_DARK, OUTLINE, 1);
+    rivets(g, r * 0.18, 0, r * brim * 0.92, variant % 4 === 1 ? 12 : 9, STEEL_DARK);
+    wobblyCircle(g, rng, r * 0.18, 0, r * crown, STEEL, STEEL_DARK, 0.9);
+    if (variant % 4 === 2) {
+      // tall peaked crown
+      g.poly([r * 0.18, -r * 0.06, r * 0.06, -r * 0.44, r * 0.3, -r * 0.44]).fill(STEEL).stroke({ width: 0.5, color: STEEL_DARK });
+    } else {
+      wobblyCircle(g, rng, r * 0.18, 0, r * 0.24, STEEL, STEEL_DARK, 0.7);
+    }
+    if (variant % 4 === 3) grime(g, rng, r * 0.05, r * 0.3, r * 0.2, 3, [STEEL_DARK]); // battle-dented
     g.circle(r * 0.18 + Math.cos(LIGHT_A) * r * 0.16, Math.sin(LIGHT_A) * r * 0.16, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.5 });
     // a second belt pouch for bolt spares
     wobblyEllipse(g, rng, -r * 0.15, -r * 0.58, r * 0.14, r * 0.11, LEATHER, WOOD_DARK, 0.5);
   } else {
-    // mail coif with a drooping aventail fringe, then a nasal helm: dome,
-    // rim rivets, crown ridge, forward nasal bar, dome specular
+    // mail coif with a drooping aventail fringe, then one of 4 helm styles
     wobblyCircle(g, rng, r * 0.16, 0, r * 0.54, STEEL_DARK, OUTLINE, 0.9);
     fringeDots(g, r * 0.16, 0, r * 0.51, Math.PI * 0.3, Math.PI * 1.7, 8, STEEL);
     wobblyCircle(g, rng, r * 0.16, 0, r * 0.42, STEEL, STEEL_DARK, 1);
-    rivets(g, r * 0.16, 0, r * 0.36, 6, STEEL_DARK);
-    wobblyLine(g, rng, -r * 0.2, 0, r * 0.52, 0, 0.8, STEEL_DARK); // crown ridge
-    wobblyLine(g, rng, r * 0.55, 0, r * 0.85, 0, 1.1, STEEL); // nasal bar
+    switch (variant % 4) {
+      case 0: // nasal helm: crown ridge + forward nasal bar
+        rivets(g, r * 0.16, 0, r * 0.36, 6, STEEL_DARK);
+        wobblyLine(g, rng, -r * 0.2, 0, r * 0.52, 0, 0.8, STEEL_DARK);
+        wobblyLine(g, rng, r * 0.55, 0, r * 0.85, 0, 1.1, STEEL);
+        break;
+      case 1: // smooth domed helm with a small crown knob, no nasal bar
+        rivets(g, r * 0.16, 0, r * 0.36, 6, STEEL_DARK);
+        g.circle(r * 0.16, 0, r * 0.09).fill(STEEL_DARK);
+        break;
+      case 2: {
+        // banded (spangenhelm) helm: crossed segment bands
+        wobblyLine(g, rng, -r * 0.18, 0, r * 0.5, 0, 0.7, STEEL_DARK);
+        wobblyLine(g, rng, r * 0.16, -r * 0.36, r * 0.16, r * 0.36, 0.7, STEEL_DARK);
+        break;
+      }
+      default: // brimmed helm: a small rim ring at the base, no nasal bar
+        rivets(g, r * 0.16, 0, r * 0.42, 8, STEEL_DARK);
+        wobblyCircle(g, rng, r * 0.16, 0, r * 0.46, STEEL_DARK, OUTLINE, 0.6);
+        wobblyCircle(g, rng, r * 0.16, 0, r * 0.42, STEEL, STEEL_DARK, 0.9);
+    }
     g.circle(r * 0.16 + Math.cos(LIGHT_A) * r * 0.2, Math.sin(LIGHT_A) * r * 0.2, r * 0.1).fill({ color: HIGHLIGHT, alpha: 0.5 });
   }
 }
@@ -225,14 +316,17 @@ function horseOutline(r: number, rng: Rng): number[] {
   return pts;
 }
 
-function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): void {
+const HORSE_MANES = [0x4a3520, 0x14110d, 0x502820, 0x5c574c]; // matches HORSE_COATS
+
+function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number, variant: number): void {
   const t = teamOf(team);
   const r = type.radius;
   const heavy = type.key === 'knight';
-  const coat = heavy ? t.cloth : HORSE_BROWN;
+  const coat = heavy ? t.cloth : HORSE_COATS[variant % 4]!;
+  const maneShade = HORSE_MANES[variant % 4]!;
 
   // tail: a full flowing shape (not a stray line) with inner strands
-  const tailColor = heavy ? t.clothDark : 0x4a3520;
+  const tailColor = heavy ? t.clothDark : maneShade;
   g.poly([
     -r * 1.8, -r * 0.16,
     -r * 2.5, -r * 0.32,
@@ -240,8 +334,8 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
     -r * 2.5, r * 0.32,
     -r * 1.8, r * 0.16,
   ]).fill(tailColor).stroke({ width: 0.8, color: OUTLINE });
-  wobblyLine(g, rng, -r * 2.0, -r * 0.08, -r * 2.55, -r * 0.14, 0.5, heavy ? t.cloth : 0x3a2a18);
-  wobblyLine(g, rng, -r * 2.0, r * 0.1, -r * 2.55, r * 0.16, 0.5, heavy ? t.cloth : 0x3a2a18);
+  wobblyLine(g, rng, -r * 2.0, -r * 0.08, -r * 2.55, -r * 0.14, 0.5, heavy ? t.cloth : coat);
+  wobblyLine(g, rng, -r * 2.0, r * 0.1, -r * 2.55, r * 0.16, 0.5, heavy ? t.cloth : coat);
 
   // one continuous body silhouette
   g.poly(horseOutline(r, rng)).fill(coat).stroke({ width: 1.25, color: OUTLINE });
@@ -274,7 +368,7 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
     r * 2.05, r * 0.22,
     r * 1.8, r * 0.24,
   ])
-    .fill(heavy ? STEEL : HORSE_BROWN)
+    .fill(heavy ? STEEL : coat)
     .stroke({ width: 0.9, color: OUTLINE });
   if (heavy) {
     wobblyLine(g, rng, r * 1.95, 0, r * 2.45, 0, 0.6, STEEL_DARK); // chanfron ridge
@@ -291,7 +385,7 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
   for (let i = 0; i < 6; i++) {
     const x = r * (0.95 + i * 0.15);
     const yTop = -r * (0.42 - i * 0.03);
-    wobblyLine(g, rng, x, yTop, x - r * 0.08, yTop - r * 0.14, 0.9, heavy ? t.clothDark : 0x4a3520);
+    wobblyLine(g, rng, x, yTop, x - r * 0.08, yTop - r * 0.14, 0.9, heavy ? t.clothDark : maneShade);
   }
 
   if (heavy) {
@@ -350,12 +444,19 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
   g.circle(rx - r * 0.1, -r * 0.32, r * 0.13).fill(t.clothDark);
   g.circle(rx - r * 0.1, r * 0.32, r * 0.13).fill(t.clothDark);
   if (heavy) {
-    // flat-topped great helm, sat higher and larger than before, breath-slit
-    // cross, rim rivets, and a highlight so it pops against the body below
+    // great helm, sat higher and larger than the body, breath-slit cross,
+    // rim rivets, and a highlight — one of 4 crown/crest styles
     wobblyCircle(g, rng, rx, 0, r * 0.4, STEEL, OUTLINE, 1.2);
     rivets(g, rx, 0, r * 0.32, 6, STEEL_DARK);
     wobblyLine(g, rng, rx, -r * 0.29, rx, r * 0.29, 0.7, STEEL_DARK);
     wobblyLine(g, rng, rx - r * 0.27, 0, rx + r * 0.22, 0, 0.7, STEEL_DARK);
+    if (variant % 4 === 2) {
+      // small triangular crest along the crown, in team trim
+      g.poly([rx - r * 0.15, -r * 0.06, rx + r * 0.12, -r * 0.06, rx - r * 0.02, -r * 0.32]).fill(t.trim).stroke({ width: 0.4, color: OUTLINE });
+    } else if (variant % 4 === 3) {
+      // domed crown highlight band instead of flat-top
+      crescent(g, rx, 0, r * 0.36, LIGHT_A, 1.3, r * 0.1, HIGHLIGHT, 0.3);
+    }
     g.circle(rx + Math.cos(LIGHT_A) * r * 0.2, Math.sin(LIGHT_A) * r * 0.2, r * 0.1).fill({ color: HIGHLIGHT, alpha: 0.55 });
   } else {
     wobblyCircle(g, rng, rx, 0, r * 0.33, STEEL, STEEL_DARK, 1);
@@ -502,7 +603,7 @@ function drawHandR(g: Graphics, rng: Rng, type: UnitType, team: number): void {
   }
 }
 
-function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number): void {
+function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number, variant: number): void {
   const t = teamOf(team);
   const armored = type.armor >= 2;
   switch (type.key) {
@@ -532,15 +633,26 @@ function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number): void {
     }
     case 'swordsman': {
       // kite shield along the flank: teardrop body, riveted rim, wood grain,
-      // heraldic cross, steel boss with a specular highlight
+      // emblem matching the surcoat's livery pattern, steel boss with a specular
       g.poly([-8.5, 0, -5.5, -3.1, 1.5, -3.5, 5.5, -1.8, 7, 0, 5.5, 1.8, 1.5, 3.5, -5.5, 3.1])
         .fill(t.cloth)
         .stroke({ width: 1.3, color: OUTLINE });
       crescent(g, -0.5, 0, 5.5, LIGHT_A, 0.8, 1.6, HIGHLIGHT, 0.16);
       grainLines(g, rng, -1, 0, 5, 1.57, 6, 5, t.clothDark, 0.2, 0.3);
       rivets(g, -0.8, 0, 5.6, 8, t.trim);
-      wobblyLine(g, rng, -7, 0, 5.8, 0, 0.9, t.trim);
-      wobblyLine(g, rng, 0, -3.2, 0, 3.2, 0.9, t.trim);
+      switch (variant % 4) {
+        case 0: // cross
+          wobblyLine(g, rng, -7, 0, 5.8, 0, 0.9, t.trim);
+          wobblyLine(g, rng, 0, -3.2, 0, 3.2, 0.9, t.trim);
+          break;
+        case 1: // single fess bar
+          wobblyLine(g, rng, -6.5, 0, 5.5, 0, 1.6, t.trim);
+          break;
+        case 2: // diagonal bend
+          wobblyLine(g, rng, -4, -2.4, 4, 2.4, 1.4, t.trim);
+          break;
+        default: // plain — rim only, no charge
+      }
       g.circle(0, 0, 1.15).fill(STEEL).stroke({ width: 0.5, color: STEEL_DARK }); // boss
       g.circle(0 + Math.cos(LIGHT_A) * 0.4, Math.sin(LIGHT_A) * 0.4, 0.35).fill({ color: HIGHLIGHT, alpha: 0.6 });
       break;
@@ -555,14 +667,14 @@ function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number): void {
   }
 }
 
-export function makePartSet(renderer: Renderer, team: number, type: UnitType): PartSet {
-  const seed = team * 977 + type.key.length * 131 + type.hp;
+export function makePartSet(renderer: Renderer, team: number, type: UnitType, variant: number): PartSet {
+  const seed = team * 977 + type.key.length * 131 + type.hp + variant * 5347;
   const r = type.radius;
   return {
     body: bake(renderer, seed ^ 0x11, (g, rng) =>
-      type.mounted ? drawHorseBody(g, rng, type, team) : drawFootBody(g, rng, type, team),
+      type.mounted ? drawHorseBody(g, rng, type, team, variant) : drawFootBody(g, rng, type, team, variant),
     ),
-    handL: bake(renderer, seed ^ 0x22, (g, rng) => drawHandL(g, rng, type, team)),
+    handL: bake(renderer, seed ^ 0x22, (g, rng) => drawHandL(g, rng, type, team, variant)),
     handR: bake(renderer, seed ^ 0x33, (g, rng) => drawHandR(g, rng, type, team)),
     shadow: bake(renderer, seed ^ 0x44, (g) => {
       if (type.mounted) g.ellipse(0.1 * r, 0, r * 2.2, r * 1.0).fill({ color: 0x000000, alpha: 0.55 });
@@ -603,9 +715,9 @@ export class SoldierLayer {
 
   constructor(renderer: Renderer, battle: Battle) {
     for (const squad of battle.squads) {
-      const set = this.partsFor(renderer, squad.team, squad.unitType);
       const spec = rigSpec(squad.unitType);
       for (const s of squad.soldiers) {
+        const set = this.partsFor(renderer, squad.team, squad.unitType, hashVariant(s.id));
         const root = new Container();
         const shadow = mkSprite(set.shadow);
         shadow.alpha = 0.3;
@@ -635,18 +747,18 @@ export class SoldierLayer {
     }
   }
 
-  partsFor(renderer: Renderer, team: number, type: UnitType): PartSet {
-    const key = `${team}:${type.key}`;
+  partsFor(renderer: Renderer, team: number, type: UnitType, variant: number): PartSet {
+    const key = `${team}:${type.key}:${variant}`;
     let set = this.parts.get(key);
     if (!set) {
-      set = makePartSet(renderer, team, type);
+      set = makePartSet(renderer, team, type, variant);
       this.parts.set(key, set);
     }
     return set;
   }
 
-  getParts(team: number, unit: UnitKey): PartSet | undefined {
-    return this.parts.get(`${team}:${unit}`);
+  getParts(team: number, unit: UnitKey, variant: number): PartSet | undefined {
+    return this.parts.get(`${team}:${unit}:${variant}`);
   }
 
   /** alpha = progress between sim ticks; gore receives hit events detected here. */
