@@ -37,11 +37,15 @@ animations, art style, pathfinding, formations, combat — then expand (more map
 - **BW5 — Command UI**: select squads, issue move/attack/hold orders, formation switching,
   drag-to-set facing and width, order preview ghosts. Flank and fighting-retreat commands live
   here (they're command macros that deserve buttons, not more hidden hotkeys).
-- **BW6 — Terrain & maps**: elevation/slopes (uphill slows, high ground helps archers), ridges,
+- **BW6 — Enemy AI commander**: combined-arms brain replacing the charge-nearest dummy — archers
+  screened behind infantry, cavalry hunting flanks/routed squads, focus fire, withdrawing mauled
+  squads, committing reserves, reacting to player moves. Placed right after command UI so there's
+  a worthy opponent the moment the controls get good. Gets a terrain-aware v2 pass after BW7.
+- **BW7 — Terrain & maps**: elevation/slopes (uphill slows, high ground helps archers), ridges,
   canyons, big rock fields, steppe/biome variety, multiple battlefields. Deliberately after unit
   types — terrain is only tactically meaningful once archers/cavalry/pikes exist. The cell-based
   world model (blocked/slow/cost flags) was built to absorb this without rework.
-- **BW7 — Art & polish**: soldier sprite animations (walk, attack, death), cohesive graphical
+- **BW8 — Art & polish**: soldier sprite animations (walk, attack, death), cohesive graphical
   style, battle effects (arrows, blood, dust), sound.
 - **Later**: more battlefields, battle setup screen, AI commander, multiplayer (lockstep over the
   deterministic sim).
