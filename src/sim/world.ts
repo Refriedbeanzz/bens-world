@@ -1,7 +1,9 @@
 import { Rng } from './rng';
 
 // World geometry. The battlefield is a grid of cells; obstacles mark cells as blocked,
-// which pathfinding (BW2) will read.
+// which pathfinding reads. A heightmap adds elevation: slopes change movement speed
+// (and therefore charge impact power), high ground extends archer range, and cells
+// with cliff-steep gradients become impassable walls.
 export const CELL = 32;
 export const GRID_W = 80;
 export const GRID_H = 50;
@@ -15,9 +17,26 @@ export interface Obstacle {
   radius: number;
 }
 
+export type Biome = 'meadow' | 'steppe' | 'forest';
+export type Relief = 'plains' | 'rolling' | 'ridge' | 'canyon';
+
+export interface WorldSpec {
+  biome: Biome;
+  relief: Relief;
+  treeClusters: [number, number];
+  rocks: [number, number];
+}
+
+export const DEFAULT_SPEC: WorldSpec = {
+  biome: 'meadow',
+  relief: 'rolling',
+  treeClusters: [7, 10],
+  rocks: [10, 16],
+};
+
 // Trees have exactly ONE gameplay effect: they weaken archery (halved range
 // shooting from inside, canopy blocks missiles landing inside). Movement is
-// completely unaffected. Rocks are hard walls.
+// completely unaffected. Rocks and cliffs are hard walls.
 export const TREE_SPEED_FACTOR = 1.0;
 const TREE_PATH_COST = 1.0;
 /** Chance the canopy stops a missile whose landing point is in forest. */
@@ -25,16 +44,56 @@ export const TREE_MISSILE_BLOCK = 0.55;
 /** Range multiplier for a shooter standing in forest. */
 export const TREE_SHOOTER_RANGE = 0.5;
 
+// Elevation. Heights are 0..1; slope speed factor looks a step ahead in the
+// movement direction. A height delta steeper than CLIFF_DELTA between adjacent
+// cells is an unclimbable face.
+const SLOPE_K = 6;
+const SLOPE_LOOKAHEAD = 26;
+const CLIFF_DELTA = 0.09;
+
+// Smooth value noise on a coarse lattice, bilinear + smoothstep interpolation.
+function makeLatticeNoise(rng: Rng, w: number, h: number): (u: number, v: number) => number {
+  const lattice = new Float32Array((w + 1) * (h + 1));
+  for (let i = 0; i < lattice.length; i++) lattice[i] = rng.next();
+  const at = (x: number, y: number) => lattice[y * (w + 1) + x] ?? 0;
+  return (u, v) => {
+    const x = Math.min(Math.max(u, 0) * w, w - 0.0001);
+    const y = Math.min(Math.max(v, 0) * h, h - 0.0001);
+    const x0 = Math.floor(x);
+    const y0 = Math.floor(y);
+    const fx = x - x0;
+    const fy = y - y0;
+    const sx = fx * fx * (3 - 2 * fx);
+    const sy = fy * fy * (3 - 2 * fy);
+    const top = at(x0, y0) * (1 - sx) + at(x0 + 1, y0) * sx;
+    const bot = at(x0, y0 + 1) * (1 - sx) + at(x0 + 1, y0 + 1) * sx;
+    return top * (1 - sy) + bot * sy;
+  };
+}
+
+function smoothstep(a: number, b: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
 export class World {
   readonly widthPx = GRID_W * CELL;
   readonly heightPx = GRID_H * CELL;
   readonly blocked = new Uint8Array(GRID_W * GRID_H);
   readonly slow = new Uint8Array(GRID_W * GRID_H);
+  /** Elevation per cell, 0..1. */
+  readonly height = new Float32Array(GRID_W * GRID_H);
+  /** Cells blocked because they're a cliff face (for rendering). */
+  readonly cliff = new Uint8Array(GRID_W * GRID_H);
   readonly obstacles: Obstacle[] = [];
   readonly seed: number;
+  readonly spec: WorldSpec;
 
-  constructor(seed: number) {
+  constructor(seed: number, spec: WorldSpec = DEFAULT_SPEC) {
     this.seed = seed;
+    this.spec = spec;
+    this.generateHeights();
+    this.markCliffs();
     const rng = new Rng(seed);
     this.placeTreeClusters(rng);
     this.placeRocks(rng);
@@ -58,7 +117,7 @@ export class World {
     return this.slow[cy * GRID_W + cx] === 1 ? TREE_PATH_COST : 1;
   }
 
-  /** Movement speed multiplier at a world position. */
+  /** Movement speed multiplier at a world position (terrain type only, not slope). */
   speedAt(x: number, y: number): number {
     const cx = Math.floor(x / CELL);
     const cy = Math.floor(y / CELL);
@@ -74,8 +133,91 @@ export class World {
     return this.slow[cy * GRID_W + cx] === 1;
   }
 
+  /** Bilinear elevation at a world position, 0..1. */
+  heightAt(x: number, y: number): number {
+    const gx = Math.min(GRID_W - 1.001, Math.max(0, x / CELL - 0.5));
+    const gy = Math.min(GRID_H - 1.001, Math.max(0, y / CELL - 0.5));
+    const x0 = Math.floor(gx);
+    const y0 = Math.floor(gy);
+    const fx = gx - x0;
+    const fy = gy - y0;
+    const h = (cx: number, cy: number) => this.height[Math.min(GRID_H - 1, cy) * GRID_W + Math.min(GRID_W - 1, cx)]!;
+    const top = h(x0, y0) * (1 - fx) + h(x0 + 1, y0) * fx;
+    const bot = h(x0, y0 + 1) * (1 - fx) + h(x0 + 1, y0 + 1) * fx;
+    return top * (1 - fy) + bot * fy;
+  }
+
+  /**
+   * Slope speed multiplier for moving from (x, y) in direction (dirX, dirY):
+   * uphill < 1, downhill > 1. Feeds charge impact power automatically.
+   */
+  slopeSpeedFactor(x: number, y: number, dirX: number, dirY: number): number {
+    const dh =
+      this.heightAt(x + dirX * SLOPE_LOOKAHEAD, y + dirY * SLOPE_LOOKAHEAD) - this.heightAt(x, y);
+    return Math.min(1.35, Math.max(0.55, 1 - dh * SLOPE_K));
+  }
+
+  /** Archery range multiplier from shooting up- or downhill. */
+  highGroundRangeMult(sx: number, sy: number, tx: number, ty: number): number {
+    return Math.min(1.3, Math.max(0.8, 1 + (this.heightAt(sx, sy) - this.heightAt(tx, ty)) * 0.6));
+  }
+
+  private generateHeights(): void {
+    const noise = makeLatticeNoise(new Rng(this.seed ^ 0x9137), 10, 7);
+    for (let cy = 0; cy < GRID_H; cy++) {
+      for (let cx = 0; cx < GRID_W; cx++) {
+        const u = cx / (GRID_W - 1);
+        const v = cy / (GRID_H - 1);
+        const n = noise(u, v) - 0.5;
+        const x = cx * CELL + CELL / 2;
+        const y = cy * CELL + CELL / 2;
+        let h: number;
+        switch (this.spec.relief) {
+          case 'plains':
+            h = 0.5 + n * 0.06;
+            break;
+          case 'rolling':
+            h = 0.5 + n * 0.5;
+            break;
+          case 'ridge': {
+            // A long high ground running down the center of the field.
+            const d = x - this.widthPx / 2;
+            h = 0.32 + 0.52 * Math.exp(-((d / 230) ** 2)) + n * 0.12;
+            break;
+          }
+          case 'canyon': {
+            // High plateaus above and below a wide low corridor. The transition
+            // band is cliff-steep — the corridor is the battlefield.
+            const dy = Math.abs(y - this.heightPx / 2);
+            h = 0.22 + 0.66 * smoothstep(380, 500, dy) + n * 0.05;
+            break;
+          }
+        }
+        this.height[cy * GRID_W + cx] = Math.min(1, Math.max(0, h));
+      }
+    }
+  }
+
+  private markCliffs(): void {
+    for (let cy = 0; cy < GRID_H; cy++) {
+      for (let cx = 0; cx < GRID_W; cx++) {
+        const i = cy * GRID_W + cx;
+        const h = this.height[i]!;
+        const steep =
+          (cx > 0 && Math.abs(h - this.height[i - 1]!) > CLIFF_DELTA) ||
+          (cx < GRID_W - 1 && Math.abs(h - this.height[i + 1]!) > CLIFF_DELTA) ||
+          (cy > 0 && Math.abs(h - this.height[i - GRID_W]!) > CLIFF_DELTA) ||
+          (cy < GRID_H - 1 && Math.abs(h - this.height[i + GRID_W]!) > CLIFF_DELTA);
+        if (steep) {
+          this.blocked[i] = 1;
+          this.cliff[i] = 1;
+        }
+      }
+    }
+  }
+
   private placeTreeClusters(rng: Rng): void {
-    const clusters = rng.int(7, 10);
+    const clusters = rng.int(this.spec.treeClusters[0], this.spec.treeClusters[1]);
     for (let c = 0; c < clusters; c++) {
       const cx = rng.range(this.widthPx * 0.06, this.widthPx * 0.94);
       const cy = rng.range(this.heightPx * 0.08, this.heightPx * 0.92);
@@ -97,7 +239,7 @@ export class World {
   }
 
   private placeRocks(rng: Rng): void {
-    const rocks = rng.int(10, 16);
+    const rocks = rng.int(this.spec.rocks[0], this.spec.rocks[1]);
     for (let r = 0; r < rocks; r++) {
       this.addObstacle({
         kind: 'rock',
@@ -110,6 +252,8 @@ export class World {
 
   private addObstacle(o: Obstacle): void {
     if (o.x < CELL || o.y < CELL || o.x > this.widthPx - CELL || o.y > this.heightPx - CELL) return;
+    // Don't drop obstacles onto cliff faces.
+    if (this.isBlocked(Math.floor(o.x / CELL), Math.floor(o.y / CELL))) return;
     this.obstacles.push(o);
     const minCx = Math.floor((o.x - o.radius) / CELL);
     const maxCx = Math.floor((o.x + o.radius) / CELL);

@@ -32,26 +32,56 @@ function lerpColor(a: number, b: number, t: number): number {
   return (r << 16) | (g << 8) | bl;
 }
 
-const GRASS_DARK = 0x3f6b2f;
-const GRASS_LIGHT = 0x5d8f43;
-const DIRT = 0x8a7550;
+const PALETTES: Record<string, { dark: number; light: number; dirt: number }> = {
+  meadow: { dark: 0x3f6b2f, light: 0x5d8f43, dirt: 0x8a7550 },
+  steppe: { dark: 0x7a7440, light: 0xa89a58, dirt: 0x9a8a60 },
+  forest: { dark: 0x38622c, light: 0x527f3d, dirt: 0x7a6a4a },
+};
+const CLIFF_COLOR = 0x6e6254;
+const CLIFF_DARK = 0x4c4339;
+
+// Scale a color's brightness by f (clamped per channel).
+function shade(c: number, f: number): number {
+  const r = Math.min(255, Math.round(((c >> 16) & 0xff) * f));
+  const g = Math.min(255, Math.round(((c >> 8) & 0xff) * f));
+  const b = Math.min(255, Math.round((c & 0xff) * f));
+  return (r << 16) | (g << 8) | b;
+}
 
 // Bakes the whole battlefield ground into one texture: drawn once, cheap forever.
+// Elevation reads through brightness (high = light) plus slope shading lit from
+// the northwest; cliff cells draw as bare rock.
 export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   const rng = new Rng(world.seed ^ 0x9e3779b9);
   const grassNoise = makeNoise(rng, 12, 8);
   const dirtNoise = makeNoise(rng, 9, 6);
   const speckle = new Rng(world.seed ^ 0x51ab3c);
+  const pal = PALETTES[world.spec.biome] ?? PALETTES.meadow!;
+
+  const heightOf = (cx: number, cy: number): number =>
+    world.height[
+      Math.min(GRID_H - 1, Math.max(0, cy)) * GRID_W + Math.min(GRID_W - 1, Math.max(0, cx))
+    ]!;
 
   const g = new Graphics();
   for (let cy = 0; cy < GRID_H; cy++) {
     for (let cx = 0; cx < GRID_W; cx++) {
       const u = cx / GRID_W;
       const v = cy / GRID_H;
-      let color = lerpColor(GRASS_DARK, GRASS_LIGHT, grassNoise(u, v));
-      const d = dirtNoise(u, v);
-      if (d > 0.68) color = lerpColor(color, DIRT, Math.min(1, (d - 0.68) / 0.18) * 0.8);
-      color = lerpColor(color, speckle.next() > 0.5 ? GRASS_LIGHT : GRASS_DARK, 0.06);
+      const h = heightOf(cx, cy);
+      const sun = Math.min(1.22, Math.max(0.78, 1 + (heightOf(cx - 1, cy - 1) - heightOf(cx + 1, cy + 1)) * 2.2));
+      const bright = (0.82 + h * 0.36) * sun;
+
+      let color: number;
+      if (world.cliff[cy * GRID_W + cx] === 1) {
+        color = shade(lerpColor(CLIFF_DARK, CLIFF_COLOR, speckle.next()), 0.75 + h * 0.45);
+      } else {
+        color = lerpColor(pal.dark, pal.light, grassNoise(u, v));
+        const d = dirtNoise(u, v);
+        if (d > 0.68) color = lerpColor(color, pal.dirt, Math.min(1, (d - 0.68) / 0.18) * 0.8);
+        color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.06);
+        color = shade(color, bright);
+      }
       g.rect(cx * CELL, cy * CELL, CELL, CELL).fill(color);
     }
   }

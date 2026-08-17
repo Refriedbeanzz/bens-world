@@ -2,7 +2,9 @@
 // Exercises the sim end to end and asserts invariants that must always hold.
 import { Battle } from '../src/sim/battle';
 import type { FormationKind } from '../src/sim/formation';
+import { MAPS } from '../src/sim/maps';
 import { SOLDIER_RADIUS } from '../src/sim/soldier';
+import { GRID_H, GRID_W, World } from '../src/sim/world';
 
 const DT = 1 / 30;
 let failures = 0;
@@ -296,6 +298,46 @@ console.log('S9: AI commander beats an idle army');
     `S9: AI failed to beat an idle army (blue ${fighting(0)} vs red ${fighting(1)})`,
   );
   assert(playerLosses > 0.4, `S9: AI barely scratched the idle army (${Math.round(playerLosses * 100)}% losses)`);
+}
+
+// S10: terrain — slopes slow uphill / speed downhill, canyons wall with cliffs
+// but keep their corridor open, and a battle on a ridge stays sane.
+console.log('S10: slopes, cliffs, and a ridge battle');
+{
+  const ridge = new World(4321, MAPS['ridge']!.spec);
+  let sloped = false;
+  for (let x = 200; x < ridge.widthPx / 2 && !sloped; x += 16) {
+    const y = ridge.heightPx / 2;
+    // Marching east (toward the ridge crest) should be slower than west (away).
+    if (ridge.slopeSpeedFactor(x, y, 1, 0) < 0.9 && ridge.slopeSpeedFactor(x, y, -1, 0) > 1.1) {
+      sloped = true;
+    }
+  }
+  assert(sloped, 'S10: ridge produced no meaningful slope');
+
+  const canyon = new World(8765, MAPS['canyon']!.spec);
+  let cliffCells = 0;
+  for (const c of canyon.cliff) cliffCells += c;
+  assert(cliffCells > 40, `S10: canyon has almost no cliff walls (${cliffCells} cells)`);
+  let corridorOpen = true;
+  for (let cx = 0; cx < GRID_W; cx++) {
+    let open = false;
+    for (let cy = Math.floor(GRID_H / 2) - 6; cy <= Math.floor(GRID_H / 2) + 6; cy++) {
+      if (!canyon.isBlocked(cx, cy)) open = true;
+    }
+    if (!open) {
+      corridorOpen = false;
+      break;
+    }
+  }
+  assert(corridorOpen, 'S10: canyon corridor is sealed somewhere');
+
+  const battle = new Battle(2468, undefined, { map: MAPS['ridge']!.spec });
+  for (const squad of battle.squads) {
+    const enemy = battle.squads.find((o) => o.team !== squad.team && o.soldiers.length > 0);
+    if (enemy) squad.orderAttack(enemy, battle.world);
+  }
+  run(battle, 'S10', 90);
 }
 
 if (failures === 0) {

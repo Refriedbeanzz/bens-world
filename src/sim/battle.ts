@@ -10,7 +10,7 @@ import {
   type Soldier,
 } from './soldier';
 import type { UnitKey } from './unittype';
-import { TREE_MISSILE_BLOCK, TREE_SHOOTER_RANGE, World } from './world';
+import { TREE_MISSILE_BLOCK, TREE_SHOOTER_RANGE, World, type WorldSpec } from './world';
 
 export const PLAYER_TEAM = 0;
 
@@ -84,9 +84,13 @@ export class Battle {
   private readonly commander: AiCommander | null;
   private nextSoldierId = 1;
 
-  constructor(seed: number, setup: SquadSpec[] = DEFAULT_SETUP, opts: { enemyAI?: boolean } = {}) {
+  constructor(
+    seed: number,
+    setup: SquadSpec[] = DEFAULT_SETUP,
+    opts: { enemyAI?: boolean; map?: WorldSpec } = {},
+  ) {
     this.commander = opts.enemyAI === false ? null : new AiCommander(1);
-    this.world = new World(seed);
+    this.world = new World(seed, opts.map);
     this.rng = new Rng(seed ^ 0x5eed);
     this.grid = new SpatialGrid(this.world.widthPx, this.world.heightPx);
 
@@ -333,9 +337,12 @@ export class Battle {
         if (s.reload > 0) continue;
         // No clean draw under the canopy: forest halves an archer's range.
         const range = this.world.inTrees(s.x, s.y) ? rp.range * TREE_SHOOTER_RANGE : rp.range;
-        const target = this.grid.nearestEnemy(s.x, s.y, s.team, range);
+        // High ground extends reach; search wide, then validate against the
+        // elevation-adjusted range for the actual candidate.
+        const target = this.grid.nearestEnemy(s.x, s.y, s.team, range * 1.3);
         if (!target) continue;
         const dist = Math.hypot(target.x - s.x, target.y - s.y);
+        if (dist > range * this.world.highGroundRangeMult(s.x, s.y, target.x, target.y)) continue;
         const flightTime = dist / rp.projectileSpeed;
         // Lead a moving target imperfectly, plus distance-scaled scatter.
         const scatter = dist * 0.028;

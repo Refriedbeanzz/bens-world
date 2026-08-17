@@ -1,6 +1,7 @@
 import { Application, Container, Graphics } from 'pixi.js';
 import { startLoop } from './core/loop';
 import { Battle } from './sim/battle';
+import { MAPS } from './sim/maps';
 import { formationSpacing, layoutSlots, type FormationKind } from './sim/formation';
 import type { Squad, Stance } from './sim/squad';
 import { Camera } from './render/camera';
@@ -37,8 +38,23 @@ async function boot(): Promise<void> {
   });
   document.body.appendChild(app.canvas);
 
-  const battle = new Battle(MAP_SEED);
+  // Map selection via ?map= query param; the HUD dropdown reloads with it.
+  const requested = new URLSearchParams(location.search).get('map') ?? 'meadow';
+  const mapKey = MAPS[requested] ? requested : 'meadow';
+  const battle = new Battle(MAP_SEED, undefined, { map: MAPS[mapKey]!.spec });
   const world = battle.world;
+
+  const mapSelect = document.getElementById('mapsel') as HTMLSelectElement;
+  for (const [key, def] of Object.entries(MAPS)) {
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = def.name;
+    opt.selected = key === mapKey;
+    mapSelect.appendChild(opt);
+  }
+  mapSelect.addEventListener('change', () => {
+    location.href = `?map=${mapSelect.value}`;
+  });
 
   const stage = new Container();
   app.stage.addChild(stage);
