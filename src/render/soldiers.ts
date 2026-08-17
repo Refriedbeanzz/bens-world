@@ -10,8 +10,10 @@ import {
   grime,
   LEATHER,
   OUTLINE,
+  paintedShade,
   rivets,
   SKIN,
+  specular,
   STEEL,
   STEEL_DARK,
   WOOD,
@@ -41,8 +43,8 @@ export function hashVariant(id: number): number {
 
 const HORSE_COATS = [0x5a3d24, 0x2a221c, 0x6e3624, 0x7c766a]; // bay, black, chestnut, grey
 
-const HIGHLIGHT = 0xf2ead6;
-const SHADOW = 0x1c150e;
+const HIGHLIGHT = 0xfff3d8;
+const SHADOW = 0x160f09;
 // Form shading: light from the up-left of the sprite's own frame.
 const LIGHT_A = -2.35; // highlight angle
 const DARK_A = 0.79; // shadow angle
@@ -179,14 +181,13 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number, varia
   // shoulder mail bumps where the (separate) arms attach, with rim highlight
   wobblyCircle(g, rng, -r * 0.05, -r * 0.82, r * 0.3, STEEL_DARK, OUTLINE, 0.8);
   wobblyCircle(g, rng, -r * 0.05, r * 0.82, r * 0.3, STEEL_DARK, OUTLINE, 0.8);
-  g.circle(-r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, -r * 0.82 + Math.sin(LIGHT_A) * r * 0.12, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.4 });
-  g.circle(-r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, r * 0.82 + Math.sin(LIGHT_A) * r * 0.12, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.4 });
+  specular(g, -r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, -r * 0.82 + Math.sin(LIGHT_A) * r * 0.12, r * 0.08, 0.5);
+  specular(g, -r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, r * 0.82 + Math.sin(LIGHT_A) * r * 0.12, r * 0.08, 0.5);
 
   // team surcoat, livery-patterned, with form shading, cloth weave, and folds
   wobblyCircle(g, rng, 0, 0, r * 0.8, t.cloth, t.clothDark, 1);
   surcoatPattern(g, r, t, variant);
-  crescent(g, 0, 0, r * 0.78, LIGHT_A, 1.15, r * 0.22, HIGHLIGHT, 0.22);
-  crescent(g, 0, 0, r * 0.78, DARK_A, 1.15, r * 0.22, SHADOW, 0.2);
+  paintedShade(g, 0, 0, r * 0.78, LIGHT_A, DARK_A, HIGHLIGHT, SHADOW);
   grainLines(g, rng, -r * 0.15, -r * 0.3, r * 0.5, 0.5, r * 0.9, 5, t.clothDark, 0.16, 0.3);
   grainLines(g, rng, -r * 0.1, r * 0.35, r * 0.5, -0.5, r * 0.9, 5, t.clothDark, 0.16, 0.3);
   // cloth folds
@@ -228,14 +229,14 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number, varia
         wobblyLine(g, rng, r * 0.02, -r * 0.3, r * 0.02, r * 0.3, 0.9, WOOD_DARK); // folded hem
         break;
       case 2: // coif only, no cap layer — bare mail dome
-        g.circle(r * 0.18 + Math.cos(LIGHT_A) * r * 0.16, Math.sin(LIGHT_A) * r * 0.16, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.35 });
+        specular(g, r * 0.18 + Math.cos(LIGHT_A) * r * 0.16, Math.sin(LIGHT_A) * r * 0.16, r * 0.08, 0.45);
         break;
       default: // pointed hood, peaked at the crown
         wobblyCircle(g, rng, r * 0.2, 0, r * 0.38, LEATHER, WOOD_DARK, 0.9);
         g.poly([r * 0.2, -r * 0.02, r * 0.05, -r * 0.5, r * 0.35, -r * 0.3]).fill(LEATHER).stroke({ width: 0.5, color: WOOD_DARK });
     }
     grainLines(g, rng, r * 0.2, 0, r * 0.16, 1.57, r * 0.7, 4, WOOD_DARK, 0.3, 0.3);
-    g.circle(r * 0.2 + Math.cos(LIGHT_A) * r * 0.18, Math.sin(LIGHT_A) * r * 0.18, r * 0.08).fill({ color: HIGHLIGHT, alpha: 0.4 });
+    specular(g, r * 0.2 + Math.cos(LIGHT_A) * r * 0.18, Math.sin(LIGHT_A) * r * 0.18, r * 0.07, 0.55);
   } else if (type.key === 'crossbowman') {
     // kettle helm, one of 4 brim/crown profiles
     const brim = [0.58, 0.66, 0.5, 0.58][variant % 4]!;
@@ -250,7 +251,7 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number, varia
       wobblyCircle(g, rng, r * 0.18, 0, r * 0.24, STEEL, STEEL_DARK, 0.7);
     }
     if (variant % 4 === 3) grime(g, rng, r * 0.05, r * 0.3, r * 0.2, 3, [STEEL_DARK]); // battle-dented
-    g.circle(r * 0.18 + Math.cos(LIGHT_A) * r * 0.16, Math.sin(LIGHT_A) * r * 0.16, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.5 });
+    specular(g, r * 0.18 + Math.cos(LIGHT_A) * r * 0.16, Math.sin(LIGHT_A) * r * 0.16, r * 0.08, 0.65);
     // a second belt pouch for bolt spares
     wobblyEllipse(g, rng, -r * 0.15, -r * 0.58, r * 0.14, r * 0.11, LEATHER, WOOD_DARK, 0.5);
   } else {
@@ -279,7 +280,7 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number, varia
         wobblyCircle(g, rng, r * 0.16, 0, r * 0.46, STEEL_DARK, OUTLINE, 0.6);
         wobblyCircle(g, rng, r * 0.16, 0, r * 0.42, STEEL, STEEL_DARK, 0.9);
     }
-    g.circle(r * 0.16 + Math.cos(LIGHT_A) * r * 0.2, Math.sin(LIGHT_A) * r * 0.2, r * 0.1).fill({ color: HIGHLIGHT, alpha: 0.5 });
+    specular(g, r * 0.16 + Math.cos(LIGHT_A) * r * 0.2, Math.sin(LIGHT_A) * r * 0.2, r * 0.09, 0.65);
   }
 }
 
@@ -346,8 +347,7 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number, vari
 
   // muscle shading: shadow along the right flank, light along the left, plus
   // a short coat-grain texture so the hide doesn't read as flat color
-  crescent(g, -r * 0.9, 0, r * 0.68, DARK_A, 1.0, r * 0.18, SHADOW, 0.2);
-  crescent(g, r * 0.3, 0, r * 0.52, LIGHT_A, 0.9, r * 0.14, HIGHLIGHT, 0.16);
+  paintedShade(g, -r * 0.3, 0, r * 1.3, LIGHT_A, DARK_A, HIGHLIGHT, SHADOW);
   grainLines(g, rng, -r * 0.75, -r * 0.05, r * 0.3, 0.35, r * 0.9, 6, OUTLINE, 0.1, 0.3);
   grainLines(g, rng, r * 0.15, 0, r * 0.3, 0.15, r * 0.8, 5, OUTLINE, 0.08, 0.3);
   // haunch and shoulder muscle lines
@@ -372,7 +372,7 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number, vari
     .stroke({ width: 0.9, color: OUTLINE });
   if (heavy) {
     wobblyLine(g, rng, r * 1.95, 0, r * 2.45, 0, 0.6, STEEL_DARK); // chanfron ridge
-    g.circle(r * 2.15 + Math.cos(LIGHT_A) * 0.3, Math.sin(LIGHT_A) * 0.3, 0.35).fill({ color: HIGHLIGHT, alpha: 0.5 });
+    specular(g, r * 2.15 + Math.cos(LIGHT_A) * 0.3, Math.sin(LIGHT_A) * 0.3, 0.3, 0.6);
   } else {
     wobblyLine(g, rng, r * 1.95, 0, r * 2.5, 0, 1.1, 0xe8dcc8); // blaze
   }
@@ -438,8 +438,7 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number, vari
   ])
     .fill(t.cloth)
     .stroke({ width: 1, color: OUTLINE });
-  crescent(g, rx, 0, r * 0.4, LIGHT_A, 0.9, r * 0.12, HIGHLIGHT, 0.3);
-  crescent(g, rx, 0, r * 0.4, DARK_A, 0.9, r * 0.1, SHADOW, 0.18);
+  paintedShade(g, rx, 0, r * 0.4, LIGHT_A, DARK_A, HIGHLIGHT, SHADOW);
   // shoulders peeking past the cloak edge
   g.circle(rx - r * 0.1, -r * 0.32, r * 0.13).fill(t.clothDark);
   g.circle(rx - r * 0.1, r * 0.32, r * 0.13).fill(t.clothDark);
@@ -457,11 +456,11 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number, vari
       // domed crown highlight band instead of flat-top
       crescent(g, rx, 0, r * 0.36, LIGHT_A, 1.3, r * 0.1, HIGHLIGHT, 0.3);
     }
-    g.circle(rx + Math.cos(LIGHT_A) * r * 0.2, Math.sin(LIGHT_A) * r * 0.2, r * 0.1).fill({ color: HIGHLIGHT, alpha: 0.55 });
+    specular(g, rx + Math.cos(LIGHT_A) * r * 0.2, Math.sin(LIGHT_A) * r * 0.2, r * 0.09, 0.7);
   } else {
     wobblyCircle(g, rng, rx, 0, r * 0.33, STEEL, STEEL_DARK, 1);
     wobblyLine(g, rng, rx + r * 0.14, 0, rx + r * 0.38, 0, 0.9, STEEL); // nasal
-    g.circle(rx + Math.cos(LIGHT_A) * r * 0.14, Math.sin(LIGHT_A) * r * 0.14, r * 0.08).fill({ color: HIGHLIGHT, alpha: 0.55 });
+    specular(g, rx + Math.cos(LIGHT_A) * r * 0.14, Math.sin(LIGHT_A) * r * 0.14, r * 0.07, 0.7);
   }
 }
 
@@ -588,6 +587,7 @@ function drawHandR(g: Graphics, rng: Rng, type: UnitType, team: number): void {
       // with quillon caps, fullered blade with edge glint
       g.circle(-3.2, 0, 1.15).fill(STEEL_DARK).stroke({ width: 0.5, color: OUTLINE }); // pommel
       g.circle(-3.2, 0, 0.4).fill(STEEL); // pommel rivet
+      specular(g, -3.4, -0.35, 0.3, 0.6);
       wrappedGrip(g, rng, -2.3, 1.7, 1.35, LEATHER);
       wobblyLine(g, rng, 2.1, -3.1, 2.1, 3.1, 1.15, STEEL_DARK); // crossguard
       g.circle(2.1, -3.1, 0.4).fill(STEEL); // quillon caps
@@ -596,8 +596,9 @@ function drawHandR(g: Graphics, rng: Rng, type: UnitType, team: number): void {
         .fill(STEEL)
         .stroke({ width: 0.6, color: STEEL_DARK });
       wobblyLine(g, rng, 3, 0, 13.5, 0, 0.45, STEEL_DARK); // fuller
-      wobblyLine(g, rng, 3, -0.8, 13, -0.5, 0.35, 0xd8dce0); // edge glint (upper)
+      wobblyLine(g, rng, 3, -0.8, 13, -0.5, 0.35, 0xf0f2f5); // edge glint (upper) — brighter, glossier
       wobblyLine(g, rng, 3, 0.8, 13, 0.5, 0.3, STEEL_DARK); // lower edge shade
+      specular(g, 8, -0.55, 0.4, 0.55); // running highlight along the blade
       drawFist(g, rng, armored);
     }
   }
@@ -654,7 +655,7 @@ function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number, variant:
         default: // plain — rim only, no charge
       }
       g.circle(0, 0, 1.15).fill(STEEL).stroke({ width: 0.5, color: STEEL_DARK }); // boss
-      g.circle(0 + Math.cos(LIGHT_A) * 0.4, Math.sin(LIGHT_A) * 0.4, 0.35).fill({ color: HIGHLIGHT, alpha: 0.6 });
+      specular(g, Math.cos(LIGHT_A) * 0.4, Math.sin(LIGHT_A) * 0.4, 0.3, 0.75);
       break;
     }
     case 'pikeman':

@@ -5,16 +5,16 @@ import { Rng } from '../sim/rng';
 // fills, and every shape drawn with a slightly wobbly edge — code imitating an
 // unsteady inking hand (Norland-ish).
 
-export const OUTLINE = 0x211a12;
-export const STEEL = 0x7e858c;
-export const STEEL_DARK = 0x52585e;
-export const WOOD = 0x644a2c;
-export const WOOD_DARK = 0x453118;
-export const SKIN = 0xb08e6c;
-export const LEATHER = 0x74582f;
+export const OUTLINE = 0x1c150e;
+export const STEEL = 0x8a929c;
+export const STEEL_DARK = 0x555b62;
+export const WOOD = 0x6b4f2f;
+export const WOOD_DARK = 0x47331a;
+export const SKIN = 0xc09468;
+export const LEATHER = 0x7c5c31;
 export const HORSE_BROWN = 0x5a3d24;
-export const BLOOD = 0x5c0f0e;
-export const BLOOD_DARK = 0x3c0b09;
+export const BLOOD = 0x680f0d;
+export const BLOOD_DARK = 0x400c0a;
 
 export interface TeamPalette {
   cloth: number;
@@ -23,8 +23,8 @@ export interface TeamPalette {
 }
 
 export const TEAMS: TeamPalette[] = [
-  { cloth: 0x3d5680, clothDark: 0x293c5c, trim: 0xc4baa0 }, // player — muted blue
-  { cloth: 0x853d30, clothDark: 0x5c281f, trim: 0xc4baa0 }, // enemy — muted red
+  { cloth: 0x33518c, clothDark: 0x213562, trim: 0xcfc4a4 }, // player — rich saturated blue
+  { cloth: 0x8f3128, clothDark: 0x611f19, trim: 0xcfc4a4 }, // enemy — deep saturated maroon
 ];
 
 export function teamOf(team: number): TeamPalette {
@@ -213,6 +213,33 @@ export function fringeDots(
     const a = angleStart + ((angleEnd - angleStart) * i) / Math.max(1, count - 1);
     g.circle(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0.28).fill(color);
   }
+}
+
+/**
+ * Painted-style form shading: several soft falloff layers instead of one
+ * hard-edged crescent, so light wraps a surface gradually — the smooth
+ * painted look of hand-rendered game portraits rather than flat cel shading.
+ */
+export function paintedShade(
+  g: Graphics,
+  cx: number,
+  cy: number,
+  r: number,
+  lightAngle: number,
+  darkAngle: number,
+  highlight: number,
+  shadow: number,
+): void {
+  crescent(g, cx, cy, r, lightAngle, 1.25, r * 0.36, highlight, 0.08);
+  crescent(g, cx, cy, r, lightAngle, 0.85, r * 0.2, highlight, 0.2);
+  crescent(g, cx, cy, r, darkAngle, 1.25, r * 0.34, shadow, 0.09);
+  crescent(g, cx, cy, r, darkAngle, 0.85, r * 0.18, shadow, 0.17);
+}
+
+/** A glossy specular fleck — a soft outer glow plus a bright hard core. Metal, gems, wet eyes. */
+export function specular(g: Graphics, cx: number, cy: number, r: number, alpha = 0.7): void {
+  g.circle(cx, cy, r * 2.0).fill({ color: 0xffffff, alpha: alpha * 0.28 });
+  g.circle(cx, cy, r).fill({ color: 0xfffdf6, alpha });
 }
 
 /** Rivets around a helmet rim or shield edge. */
