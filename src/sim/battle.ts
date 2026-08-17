@@ -68,7 +68,7 @@ export interface Projectile {
   arcHeight: number;
 }
 
-const PROJECTILE_HIT_RADIUS = 12;
+const PROJECTILE_HIT_RADIUS = 13;
 const CHARGING_MISSILE_VULNERABILITY = 1.5;
 
 // The whole battle state: world + squads. One tick() advances everything.
@@ -356,11 +356,11 @@ export class Battle {
         const dist = Math.hypot(target.x - s.x, target.y - s.y);
         const flightTime = dist / rp.projectileSpeed;
         // Lead a moving target imperfectly, plus distance-scaled scatter.
-        const scatter = dist * 0.05;
+        const scatter = dist * 0.028;
         const tx =
-          target.x + target.vx * flightTime * 0.7 + this.rng.range(-scatter, scatter);
+          target.x + target.vx * flightTime * 0.85 + this.rng.range(-scatter, scatter);
         const ty =
-          target.y + target.vy * flightTime * 0.7 + this.rng.range(-scatter, scatter);
+          target.y + target.vy * flightTime * 0.85 + this.rng.range(-scatter, scatter);
         this.projectiles.push({
           x: s.x,
           y: s.y,
