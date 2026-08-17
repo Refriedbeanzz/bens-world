@@ -7,6 +7,7 @@ import {
   crescent,
   fringeDots,
   grainLines,
+  grime,
   HORSE_BROWN,
   LEATHER,
   OUTLINE,
@@ -142,6 +143,9 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number): void
   // gambeson (padded undercoat) peeking at the collar
   wobblyCircle(g, rng, r * 0.06, 0, r * 0.22, GAMBESON, WOOD_DARK, 0.55);
   grainLines(g, rng, r * 0.06, 0, r * 0.12, 0.9, r * 0.36, 5, WOOD_DARK, 0.35, 0.3);
+  // dirt, road grime, and wear scattered over the mail and surcoat
+  grime(g, rng, 0, 0, r * 0.98, 10);
+  grime(g, rng, r * 0.15, r * 0.4, r * 0.4, 5, [0x5a4326, 0x3a2c18]);
 
   // belt across the waist: buckle, a small belt-pouch, and a sheathed dagger
   wobblyLine(g, rng, -r * 0.28, -r * 0.72, -r * 0.28, r * 0.72, 1.1, WOOD_DARK);
@@ -255,6 +259,9 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
   // haunch and shoulder muscle lines
   g.moveTo(-r * 0.5, -r * 0.5).quadraticCurveTo(-r * 0.3, 0, -r * 0.5, r * 0.5).stroke({ width: 0.5, color: OUTLINE });
   g.moveTo(r * 0.85, -r * 0.4).quadraticCurveTo(r * 0.95, 0, r * 0.85, r * 0.4).stroke({ width: 0.45, color: OUTLINE });
+  // mud spatter on the legs' end of the barrel and flank grime
+  grime(g, rng, -r * 0.3, r * 0.5, r * 0.5, 6, [0x4a3a20, 0x2e2212]);
+  grime(g, rng, r * 0.5, -r * 0.4, r * 0.5, 5, [0x4a3a20, 0x2e2212]);
 
   // head: a real jaw/muzzle wedge (not a blob) tapering to the nose, then
   // chanfron plate for knights or a blaze stripe for light cavalry

@@ -57,18 +57,31 @@ export function wobblyEllipse(
   outline: number = OUTLINE,
   outlineWidth = 1.1,
 ): void {
-  const n = Math.max(9, Math.round((rx + ry) * 0.9));
+  const n = Math.max(11, Math.round((rx + ry) * 1.1));
   const pts: number[] = [];
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2;
-    const j = 1 + rng.range(-0.08, 0.08);
+    const j = 1 + rng.range(-0.13, 0.13);
     pts.push(cx + Math.cos(a) * rx * j, cy + Math.sin(a) * ry * j);
   }
   g.poly(pts).fill(fill);
-  if (outlineWidth > 0) g.poly(pts).stroke({ width: outlineWidth, color: outline });
+  if (outlineWidth > 0) {
+    // Stroke in arcs with slight width jitter instead of one uniform pass —
+    // a scratchier, hand-inked rim.
+    for (let i = 0; i < n; i++) {
+      const j2 = i === n - 1 ? 0 : i + 1;
+      g.moveTo(pts[i * 2]!, pts[i * 2 + 1]!)
+        .lineTo(pts[j2 * 2]!, pts[j2 * 2 + 1]!)
+        .stroke({ width: outlineWidth * rng.range(0.75, 1.2), color: outline });
+    }
+  }
 }
 
-/** A hand-wobbled line (for shafts, blades, ridges). */
+/**
+ * A hand-wobbled line (for shafts, blades, ridges), drawn as separate
+ * scratchy segments with per-segment width jitter — a rougher, more inked
+ * feel than one smooth uniform stroke.
+ */
 export function wobblyLine(
   g: Graphics,
   rng: Rng,
@@ -79,15 +92,46 @@ export function wobblyLine(
   width: number,
   color: number,
 ): void {
-  const segs = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / 7));
-  g.moveTo(x0, y0);
+  const segs = Math.max(2, Math.round(Math.hypot(x1 - x0, y1 - y0) / 6));
+  const pts: [number, number][] = [[x0, y0]];
   for (let i = 1; i <= segs; i++) {
     const t = i / segs;
-    const jx = i === segs ? 0 : rng.range(-0.7, 0.7);
-    const jy = i === segs ? 0 : rng.range(-0.7, 0.7);
-    g.lineTo(x0 + (x1 - x0) * t + jx, y0 + (y1 - y0) * t + jy);
+    const jx = i === segs ? 0 : rng.range(-1.1, 1.1);
+    const jy = i === segs ? 0 : rng.range(-1.1, 1.1);
+    pts.push([x0 + (x1 - x0) * t + jx, y0 + (y1 - y0) * t + jy]);
   }
-  g.stroke({ width, color });
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1]!;
+    const [bx, by] = pts[i]!;
+    g.moveTo(ax, ay)
+      .lineTo(bx, by)
+      .stroke({ width: width * rng.range(0.8, 1.15), color });
+  }
+}
+
+/**
+ * Weathering: scattered dirt/wear blotches over a shape — grime, scuffs,
+ * mud spatter. Mostly dark/rust tones at low alpha so it reads as texture,
+ * not damage.
+ */
+export function grime(
+  g: Graphics,
+  rng: Rng,
+  cx: number,
+  cy: number,
+  r: number,
+  count: number,
+  colors: number[] = [0x2a1f14, 0x4a3520, 0x1c150e],
+): void {
+  for (let i = 0; i < count; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = Math.sqrt(rng.next()) * r;
+    const x = cx + Math.cos(a) * d;
+    const y = cy + Math.sin(a) * d;
+    const size = rng.range(r * 0.06, r * 0.22);
+    const color = colors[Math.floor(rng.next() * colors.length)]!;
+    splat(g, rng, x, y, size, color, rng.range(0.08, 0.24));
+  }
 }
 
 /**

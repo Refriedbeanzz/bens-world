@@ -83,12 +83,30 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       } else {
         color = lerpColor(pal.dark, pal.light, grassNoise(u, v));
         const d = dirtNoise(u, v);
-        if (d > 0.68) color = lerpColor(color, pal.dirt, Math.min(1, (d - 0.68) / 0.18) * 0.8);
-        color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.06);
-        color = shade(color, bright);
+        if (d > 0.6) color = lerpColor(color, pal.dirt, Math.min(1, (d - 0.6) / 0.22) * 0.85);
+        color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.11);
+        color = shade(color, bright * 0.96);
       }
       g.rect(cx * CELL, cy * CELL, CELL, CELL).fill(color);
     }
+  }
+
+  // Fine grit pass: scattered pebbles, dirt flecks, and worn patches at a
+  // sub-cell scale so the ground reads rough up close, not like flat tiles.
+  const grit = new Rng(world.seed ^ 0x6a12f3);
+  const gritCount = Math.round(GRID_W * GRID_H * 2.4);
+  for (let i = 0; i < gritCount; i++) {
+    const px = grit.range(0, world.widthPx);
+    const py = grit.range(0, world.heightPx);
+    const cx = Math.floor(px / CELL);
+    const cy = Math.floor(py / CELL);
+    if (world.water[cy * GRID_W + cx] || world.cliff[cy * GRID_W + cx]) continue;
+    const dark = grit.next() > 0.35;
+    const size = grit.range(0.5, 1.8);
+    g.circle(px, py, size).fill({
+      color: dark ? pal.dirt : pal.light,
+      alpha: grit.range(0.08, dark ? 0.22 : 0.14),
+    });
   }
 
   const texture = RenderTexture.create({ width: world.widthPx, height: world.heightPx });

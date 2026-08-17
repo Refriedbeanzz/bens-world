@@ -1,4 +1,4 @@
-import { Application, Container, Graphics } from 'pixi.js';
+import { Application, Container, Graphics, TilingSprite } from 'pixi.js';
 import { startLoop } from './core/loop';
 import { Battle } from './sim/battle';
 import { MAPS } from './sim/maps';
@@ -6,6 +6,7 @@ import { formationSpacing, layoutSlots, type FormationKind } from './sim/formati
 import type { Squad, Stance } from './sim/squad';
 import { Camera } from './render/camera';
 import { GoreLayer } from './render/gore';
+import { buildGrainTexture } from './render/grain';
 import { drawProjectiles, SoldierLayer } from './render/soldiers';
 import { buildTerrainSprite, buildObstacleLayer } from './render/terrain';
 
@@ -93,6 +94,14 @@ async function boot(): Promise<void> {
   // Screen-space UI (the box-select rectangle).
   const uiLayer = new Graphics();
   app.stage.addChild(uiLayer);
+
+  // Film grain: a fixed screen-space multiply overlay tying terrain, soldiers,
+  // and gore into one gritty texture instead of reading as separate layers.
+  const grainTex = buildGrainTexture(app.renderer);
+  const grain = new TilingSprite({ texture: grainTex, width: window.innerWidth, height: window.innerHeight });
+  grain.blendMode = 'multiply';
+  grain.alpha = 0.16;
+  app.stage.addChild(grain);
 
   const selected = new Set<Squad>();
   const camera = new Camera(world, stage, app.canvas, () => selected.size === 0);
@@ -437,6 +446,8 @@ async function boot(): Promise<void> {
     },
     (frameDt, alpha) => {
       camera.update(frameDt);
+      grain.width = window.innerWidth;
+      grain.height = window.innerHeight;
 
       for (const death of battle.consumeDeaths()) {
         soldierLayer.removeById(death.id);
