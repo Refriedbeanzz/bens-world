@@ -41,7 +41,8 @@ animations, art style, pathfinding, formations, combat — then expand (more map
   screened behind infantry, cavalry hunting flanks/routed squads, focus fire, withdrawing mauled
   squads, committing reserves, reacting to player moves. Placed right after command UI so there's
   a worthy opponent the moment the controls get good. Gets a terrain-aware v2 pass after BW7.
-- **BW7 — Terrain & maps**: elevation/slopes (uphill slows, high ground helps archers), ridges,
+- **BW7 — Terrain & maps**: elevation/slopes (uphill slows, high ground helps archers; slopes
+  feed squad.impactPower so downhill charges hit harder than 1.0 and uphill softer), ridges,
   canyons, big rock fields, steppe/biome variety, multiple battlefields. Deliberately after unit
   types — terrain is only tactically meaningful once archers/cavalry/pikes exist. The cell-based
   world model (blocked/slow/cost flags) was built to absorb this without rework.
