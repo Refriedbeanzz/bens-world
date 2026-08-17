@@ -17,7 +17,7 @@ animations, art style, pathfinding, formations, combat — then expand (more map
 
 | Project | Branch | Phases done | Phases left | State |
 |---|---|---|---|---|
-| Battle sim core | main | BW0–BW5 | BW6–BW8 | in-progress |
+| Battle sim core | main | BW0–BW6 | BW7–BW8 | in-progress |
 
 ## Phases
 
