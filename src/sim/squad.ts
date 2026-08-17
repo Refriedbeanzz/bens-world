@@ -377,12 +377,18 @@ export class Squad {
     this.state = state;
     this.rallyProgress = 0;
     this.charging = false;
+    this.chargeImpactClock = 0;
     this.inMelee = false;
     this.attackTarget = null;
+    this.pendingAttack = null;
+    this.arrivalFacing = null;
     this.orderX = null;
     this.orderY = null;
     this.speed = 0;
-    for (const s of this.soldiers) s.targetId = 0;
+    for (const s of this.soldiers) {
+      s.targetId = 0;
+      s.chargeBonus = false;
+    }
   }
 
   /** Routed men regain their nerve: reform on the spot, commandable again. */
