@@ -239,9 +239,12 @@ export class Battle {
             squad.inMelee = true;
             // Charge impact: momentum converts into bonus damage on first swings,
             // but only within the impact window — the crash, not the grind.
+            // Impact power = how much of a full gallop was actually reached, so a
+            // charge launched without runway hits soft.
             if (squad.charging) {
               squad.charging = false;
               squad.chargeImpactClock = 3;
+              squad.impactPower = Math.min(1.3, squad.speed / squad.fullChargeSpeed());
               for (const cs of squad.soldiers) cs.chargeBonus = true;
             }
             break;
@@ -286,7 +289,13 @@ export class Battle {
             let dmg = this.rng.int(type.meleeDamage[0], type.meleeDamage[1]);
             if (s.chargeBonus) {
               // Pikes blunt a charge — braced points meet the rush, no impact bonus.
-              if (!victimType?.pike) dmg += this.rng.int(type.chargeBonus[0], type.chargeBonus[1]);
+              // Kinetic energy scales with speed SQUARED: half-speed hits at a quarter power.
+              if (!victimType?.pike) {
+                dmg +=
+                  this.rng.int(type.chargeBonus[0], type.chargeBonus[1]) *
+                  squad.impactPower *
+                  squad.impactPower;
+              }
               s.chargeBonus = false;
             }
             // Pikes skewer horses.

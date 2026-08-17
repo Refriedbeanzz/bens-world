@@ -96,6 +96,10 @@ export class Squad {
   // Seconds left in the impact window: charge-bonus swings only land this long
   // after the crash, so a charge kills the men it HIT, not someone 20s later.
   chargeImpactClock = 0;
+  // How much of a full-gallop charge was actually reached at the moment of
+  // impact (0..1.3). Scales impact damage: charges need runway to be deadly.
+  // BW7 slopes will feed this too (downhill > 1, uphill < 1).
+  impactPower = 1;
   // A squad that has rallied once flees for good the next time it breaks.
   rallied = false;
   // Seconds of breathing room accumulated while routing; battle drives this.
@@ -263,6 +267,11 @@ export class Squad {
   /** Break into a charge toward the current order. Ends on impact or arrival. */
   startCharge(): void {
     if (this.state === 'steady') this.charging = true;
+  }
+
+  /** Top speed of a full charge for this squad in its current formation. */
+  fullChargeSpeed(): number {
+    return MARCH_SPEED * this.unitType.speedMult * FORMATION_SPEED[this.formation] * CHARGE_SPEED_MULT;
   }
 
   /** Standing with nothing to do (halted, steady, out of contact). */
