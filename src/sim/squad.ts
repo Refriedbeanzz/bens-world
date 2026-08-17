@@ -232,6 +232,8 @@ export class Squad {
     }
     wx = Math.min(world.widthPx - 60, Math.max(60, wx));
     wy = Math.min(world.heightPx - 60, Math.max(60, wy));
+    // Never aim the swing-around waypoint at a river/cliff.
+    [wx, wy] = world.nearestOpenPoint(wx, wy);
     this.orderMove(wx, wy, world);
     this.pendingAttack = target;
   }

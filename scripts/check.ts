@@ -409,6 +409,17 @@ console.log('S10: slopes, cliffs, and a ridge battle');
   assert(madeContact, 'S10: attacker never crossed the river to reach the enemy');
 }
 
+// S11: AI never gets stuck against the river or map edge — a full battle on
+// River Crossing with AI on both sides must produce real casualties.
+console.log('S11: AI does not get stuck on river/border');
+{
+  const battle = new Battle(1212, undefined, { map: MAPS['river']!.spec });
+  const startTotal = count(battle, 0) + count(battle, 1);
+  run(battle, 'S11', 200);
+  const remaining = count(battle, 0) + count(battle, 1);
+  assert(remaining < startTotal, 'S11: no casualties after 200s on the river map — AI likely stuck');
+}
+
 if (failures === 0) {
   console.log('ALL CHECKS PASSED');
 } else {

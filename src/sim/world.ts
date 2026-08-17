@@ -159,6 +159,30 @@ export class World {
     return f;
   }
 
+  /**
+   * Nearest non-blocked point to (x, y), searching outward ring by ring.
+   * Used to keep computed destinations (AI staging points, flank waypoints)
+   * out of rivers/cliffs — an order aimed AT solid terrain leaves a squad
+   * pressed against it forever.
+   */
+  nearestOpenPoint(x: number, y: number, maxRing = 12): [number, number] {
+    const cx0 = Math.floor(x / CELL);
+    const cy0 = Math.floor(y / CELL);
+    if (!this.isBlocked(cx0, cy0)) return [x, y];
+    for (let ring = 1; ring <= maxRing; ring++) {
+      for (let dy = -ring; dy <= ring; dy++) {
+        for (let dx = -ring; dx <= ring; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+          const cx = cx0 + dx;
+          const cy = cy0 + dy;
+          if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) continue;
+          if (!this.isBlocked(cx, cy)) return [cx * CELL + CELL / 2, cy * CELL + CELL / 2];
+        }
+      }
+    }
+    return [x, y];
+  }
+
   /** True when the straight segment between two points crosses no blocked cell. */
   lineWalkable(x0: number, y0: number, x1: number, y1: number): boolean {
     const dx = x1 - x0;

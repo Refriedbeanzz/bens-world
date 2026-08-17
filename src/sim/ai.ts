@@ -82,6 +82,8 @@ export class AiCommander {
     const w = battle.world;
     x = Math.min(w.widthPx - 50, Math.max(50, x));
     y = Math.min(w.heightPx - 50, Math.max(50, y));
+    // Never send a squad AT a river/cliff — snap the destination onto dry ground.
+    [x, y] = w.nearestOpenPoint(x, y);
     const m = this.mem(squad);
     // Don't spam near-identical orders (each rebuilds a flow field).
     if (squad.hasOrder() && d(m.lastMoveX, m.lastMoveY, x, y) < 70) return;

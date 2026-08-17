@@ -109,6 +109,9 @@ async function boot(): Promise<void> {
 
   const clampX = (x: number) => Math.min(world.widthPx - 40, Math.max(40, x));
   const clampY = (y: number) => Math.min(world.heightPx - 40, Math.max(40, y));
+  // Never send a squad AT a river/cliff — an order aimed at solid terrain
+  // leaves it pressed against the bank forever instead of arriving.
+  const clampOpen = (x: number, y: number): [number, number] => world.nearestOpenPoint(clampX(x), clampY(y));
 
   const showMarker = (wx: number, wy: number, color: number): void => {
     markerColor = color;
@@ -139,7 +142,8 @@ async function boot(): Promise<void> {
     cx /= selected.size;
     cy /= selected.size;
     for (const squad of selected) {
-      squad.orderMove(clampX(wx + squad.anchorX - cx), clampY(wy + squad.anchorY - cy), battle.world);
+      const [tx, ty] = clampOpen(wx + squad.anchorX - cx, wy + squad.anchorY - cy);
+      squad.orderMove(tx, ty, battle.world);
     }
     showMarker(wx, wy, 0xf0e8c0);
   };
@@ -189,12 +193,8 @@ async function boot(): Promise<void> {
       const along = seg * (i + 0.5);
       const spacing = formationSpacing(squad.formation) * (squad.unitType.radius / 7);
       const cols = Math.min(squad.soldiers.length, Math.max(2, Math.round((seg * 0.92) / spacing)));
-      return {
-        squad,
-        ax: clampX(g.sx + g.dirX * along),
-        ay: clampY(g.sy + g.dirY * along),
-        cols,
-      };
+      const [ax, ay] = clampOpen(g.sx + g.dirX * along, g.sy + g.dirY * along);
+      return { squad, ax, ay, cols };
     });
     return { g, placements };
   };
@@ -305,7 +305,8 @@ async function boot(): Promise<void> {
     retreat: () => {
       for (const squad of selected) {
         squad.stance = 'defensive';
-        squad.orderMove(clampX(squad.anchorX - 340), clampY(squad.anchorY), battle.world, 0);
+        const [tx, ty] = clampOpen(squad.anchorX - 340, squad.anchorY);
+        squad.orderMove(tx, ty, battle.world, 0);
       }
     },
     flank: () => {
