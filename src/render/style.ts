@@ -5,16 +5,16 @@ import { Rng } from '../sim/rng';
 // fills, and every shape drawn with a slightly wobbly edge — code imitating an
 // unsteady inking hand (Norland-ish).
 
-export const OUTLINE = 0x2e241a;
-export const STEEL = 0x9aa1a8;
-export const STEEL_DARK = 0x6b7178;
-export const WOOD = 0x7a5c38;
-export const WOOD_DARK = 0x57401f;
-export const SKIN = 0xc9a37e;
-export const LEATHER = 0x8a6a42;
-export const HORSE_BROWN = 0x6f4b2d;
-export const BLOOD = 0x6e1210;
-export const BLOOD_DARK = 0x4a0e0c;
+export const OUTLINE = 0x211a12;
+export const STEEL = 0x7e858c;
+export const STEEL_DARK = 0x52585e;
+export const WOOD = 0x644a2c;
+export const WOOD_DARK = 0x453118;
+export const SKIN = 0xb08e6c;
+export const LEATHER = 0x74582f;
+export const HORSE_BROWN = 0x5a3d24;
+export const BLOOD = 0x5c0f0e;
+export const BLOOD_DARK = 0x3c0b09;
 
 export interface TeamPalette {
   cloth: number;
@@ -23,8 +23,8 @@ export interface TeamPalette {
 }
 
 export const TEAMS: TeamPalette[] = [
-  { cloth: 0x49699a, clothDark: 0x324b72, trim: 0xd8cfae }, // player — muted blue
-  { cloth: 0xa04a3a, clothDark: 0x743226, trim: 0xd8cfae }, // enemy — muted red
+  { cloth: 0x3d5680, clothDark: 0x293c5c, trim: 0xc4baa0 }, // player — muted blue
+  { cloth: 0x853d30, clothDark: 0x5c281f, trim: 0xc4baa0 }, // enemy — muted red
 ];
 
 export function teamOf(team: number): TeamPalette {

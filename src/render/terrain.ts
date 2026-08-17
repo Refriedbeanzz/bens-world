@@ -33,12 +33,12 @@ function lerpColor(a: number, b: number, t: number): number {
 }
 
 const PALETTES: Record<string, { dark: number; light: number; dirt: number }> = {
-  meadow: { dark: 0x3f6b2f, light: 0x5d8f43, dirt: 0x8a7550 },
-  steppe: { dark: 0x7a7440, light: 0xa89a58, dirt: 0x9a8a60 },
-  forest: { dark: 0x38622c, light: 0x527f3d, dirt: 0x7a6a4a },
+  meadow: { dark: 0x2e5122, light: 0x486e34, dirt: 0x6c5c3e },
+  steppe: { dark: 0x5c5730, light: 0x83773f, dirt: 0x76684a },
+  forest: { dark: 0x294a20, light: 0x3d6030, dirt: 0x5c4f38 },
 };
-const CLIFF_COLOR = 0x6e6254;
-const CLIFF_DARK = 0x4c4339;
+const CLIFF_COLOR = 0x574e42;
+const CLIFF_DARK = 0x3a332a;
 
 // Scale a color's brightness by f (clamped per channel).
 function shade(c: number, f: number): number {
@@ -85,7 +85,7 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
         const d = dirtNoise(u, v);
         if (d > 0.6) color = lerpColor(color, pal.dirt, Math.min(1, (d - 0.6) / 0.22) * 0.85);
         color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.11);
-        color = shade(color, bright * 0.96);
+        color = shade(color, bright * 0.86);
       }
       g.rect(cx * CELL, cy * CELL, CELL, CELL).fill(color);
     }

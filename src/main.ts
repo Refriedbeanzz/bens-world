@@ -35,7 +35,7 @@ async function boot(): Promise<void> {
   const app = new Application();
   await app.init({
     resizeTo: window,
-    background: 0x1a2210,
+    background: 0x11170b,
     antialias: true,
   });
   document.body.appendChild(app.canvas);
@@ -100,7 +100,7 @@ async function boot(): Promise<void> {
   const grainTex = buildGrainTexture(app.renderer);
   const grain = new TilingSprite({ texture: grainTex, width: window.innerWidth, height: window.innerHeight });
   grain.blendMode = 'multiply';
-  grain.alpha = 0.16;
+  grain.alpha = 0.24;
   app.stage.addChild(grain);
 
   const selected = new Set<Squad>();

@@ -366,30 +366,55 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
 
 // --- Hands (fist + held weapon), drawn facing +x, fist at the origin ---
 
-function drawFist(g: Graphics, rng: Rng, armored: boolean): void {
-  wobblyCircle(g, rng, 0, 0, 1.9, armored ? STEEL : SKIN, OUTLINE, 0.9);
-  if (armored) rivets(g, 0, 0, 1.3, 4, STEEL_DARK);
+function drawFist(g: Graphics, rng: Rng, armored: boolean, scale = 1): void {
+  const r = 1.55 * scale;
+  wobblyCircle(g, rng, 0, 0, r, armored ? STEEL : SKIN, OUTLINE, 0.85);
+  if (armored) rivets(g, 0, 0, r * 0.68, 4, STEEL_DARK);
   // knuckle lines so it reads as a gripping fist, not a dot
-  wobblyLine(g, rng, -0.7, -1.15, -0.7, 1.15, 0.45, armored ? STEEL_DARK : 0xa87f5e);
-  wobblyLine(g, rng, -0.1, -1.0, -0.1, 1.0, 0.35, armored ? STEEL_DARK : 0x9a734f);
+  wobblyLine(g, rng, -r * 0.37, -r * 0.6, -r * 0.37, r * 0.6, 0.4, armored ? STEEL_DARK : 0xa87f5e);
+  wobblyLine(g, rng, -r * 0.05, -r * 0.53, -r * 0.05, r * 0.53, 0.3, armored ? STEEL_DARK : 0x9a734f);
 }
 
+// A weapon head/blade tip: RIGID straight edges (no wobble) — wobble suits
+// cloth and grain texture, not a forged point that must read as sharp and true.
 function drawSpearhead(g: Graphics, rng: Rng, x: number, len: number, w: number): void {
   g.poly([x + len, 0, x, -w, x + len * 0.22, 0, x, w])
     .fill(STEEL)
     .stroke({ width: 0.6, color: STEEL_DARK });
-  wobblyLine(g, rng, x + len * 0.3, 0, x + len * 0.85, 0, 0.35, 0xd2d6da); // midrib glint
+  g.moveTo(x + len * 0.3, 0).lineTo(x + len * 0.85, 0).stroke({ width: 0.35, color: 0xd2d6da }); // midrib glint
   g.poly([x, -w, x + len * 0.5, -w * 0.15, x, 0]).fill({ color: HIGHLIGHT, alpha: 0.22 }); // facet light
+  void rng;
 }
 
-/** A wrapped leather grip: base color plus diagonal wrap-lines. */
+/**
+ * A rigid weapon shaft: a straight (very slightly tapered) pole, never
+ * wobbly — a pike or lance must read as a true, stiff rod. Grain texture
+ * carries the hand-drawn feel instead of a jittery outline.
+ */
+function rigidShaft(
+  g: Graphics,
+  rng: Rng,
+  x0: number,
+  x1: number,
+  w0: number,
+  w1: number,
+  color: number,
+  colorDark: number,
+): void {
+  g.poly([x0, -w0 / 2, x1, -w1 / 2, x1, w1 / 2, x0, w0 / 2]).fill(color).stroke({ width: 0.6, color: colorDark });
+  g.moveTo(x0, -w0 / 2 + 0.3).lineTo(x1, -w1 / 2 + 0.25).stroke({ width: Math.max(0.4, w0 * 0.22), color: colorDark, alpha: 0.8 });
+  grainLines(g, rng, (x0 + x1) / 2, 0, (x1 - x0) * 0.06, 0, x1 - x0 - 4, Math.max(4, Math.round((x1 - x0) / 4)), colorDark, 0.4, Math.max(w0, w1) * 0.18);
+}
+
+/** A wrapped leather grip on a rigid shaft: base band plus diagonal wrap-lines. */
 function wrappedGrip(g: Graphics, rng: Rng, x0: number, x1: number, w: number, color: number): void {
-  wobblyLine(g, rng, x0, 0, x1, 0, w, color);
+  g.rect(x0, -w / 2, x1 - x0, w).fill(color).stroke({ width: 0.4, color: WOOD_DARK });
   const wraps = Math.max(2, Math.round((x1 - x0) / 1.4));
   for (let i = 0; i < wraps; i++) {
     const x = x0 + ((x1 - x0) * i) / wraps;
-    g.moveTo(x, -w / 2).lineTo(x + 0.7, w / 2).stroke({ width: 0.28, color: OUTLINE, alpha: 0.5 });
+    g.moveTo(x, -w / 2).lineTo(x + 0.7, w / 2).stroke({ width: 0.3, color: OUTLINE, alpha: 0.55 });
   }
+  void rng;
 }
 
 function drawHandR(g: Graphics, rng: Rng, type: UnitType, team: number): void {
@@ -397,15 +422,13 @@ function drawHandR(g: Graphics, rng: Rng, type: UnitType, team: number): void {
   const armored = type.armor >= 2;
   switch (type.key) {
     case 'pikeman': {
-      // 4m ash pike: two-tone tapered shaft, wrapped grip, langets, leaf head
-      wobblyLine(g, rng, -9, 0, 29, 0, 1.6, WOOD);
-      wobblyLine(g, rng, -9, -0.5, 29, -0.5, 0.5, WOOD_DARK);
-      grainLines(g, rng, 8, 0, 3, 0, 32, 9, WOOD_DARK, 0.4, 0.3);
-      wrappedGrip(g, rng, -6, 3, 2.1, LEATHER);
-      wobblyLine(g, rng, 26, -1.3, 26, 1.3, 1, STEEL_DARK); // langet band
-      wobblyLine(g, rng, 30.5, -1.3, 30.5, 1.3, 1, STEEL_DARK);
+      // 4m ash pike: one rigid tapered shaft, wrapped grip, langets, leaf head
+      rigidShaft(g, rng, -9, 29, 1.7, 1.3, WOOD, WOOD_DARK);
+      wrappedGrip(g, rng, -6, 2, 2.0, LEATHER);
+      g.moveTo(26, -1.2).lineTo(26, 1.2).stroke({ width: 1, color: STEEL_DARK }); // langet band
+      g.moveTo(30.5, -1.2).lineTo(30.5, 1.2).stroke({ width: 1, color: STEEL_DARK });
       drawSpearhead(g, rng, 30, 6.5, 1.9);
-      drawFist(g, rng, armored);
+      drawFist(g, rng, armored, 0.85);
       break;
     }
     case 'archer': {
@@ -452,12 +475,11 @@ function drawHandR(g: Graphics, rng: Rng, type: UnitType, team: number): void {
       break;
     }
     case 'cavalry': {
-      // light spear with a leather hand-stop wrap and a smaller head
-      wobblyLine(g, rng, -5, 0, 23, 0, 1.3, WOOD);
-      grainLines(g, rng, 6, 0, 2.5, 0, 26, 8, WOOD_DARK, 0.35, 0.25);
-      wrappedGrip(g, rng, 1, 5, 1.9, LEATHER);
+      // light spear: rigid shaft, leather hand-stop wrap, a smaller head
+      rigidShaft(g, rng, -5, 23, 1.4, 1.1, WOOD, WOOD_DARK);
+      wrappedGrip(g, rng, 1, 4.5, 1.7, LEATHER);
       drawSpearhead(g, rng, 23, 5, 1.5);
-      drawFist(g, rng, armored);
+      drawFist(g, rng, armored, 0.85);
       break;
     }
     default: {
@@ -485,8 +507,9 @@ function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number): void {
   const armored = type.armor >= 2;
   switch (type.key) {
     case 'archer': {
-      // self bow held out: thick tapered stave, recurved horn nocks, wrapped
-      // grip at the centre, string, and a whipped nocking point
+      // self bow held out: thick tapered stave, recurved horn nocks, string,
+      // then the gripping fist, with the leather riser-wrap drawn LAST so it
+      // sits visibly on top of the hand instead of being hidden under it.
       g.moveTo(1.5, -9.8);
       g.quadraticCurveTo(7.8, 0, 1.5, 9.8);
       g.stroke({ width: 2.0, color: WOOD });
@@ -494,12 +517,17 @@ function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number): void {
       g.quadraticCurveTo(7.3, 0, 2.3, 8.7);
       g.stroke({ width: 0.6, color: WOOD_DARK });
       grainLines(g, rng, 4.5, -5, 1.6, 1.4, 8, 6, WOOD_DARK, 0.3, 0.25);
-      wobblyLine(g, rng, 1, -1.6, 1, 1.6, 2.0, LEATHER); // centre grip wrap
       g.poly([1.5, -9.8, 0.3, -11.0, 2.5, -10.6]).fill(WOOD_DARK); // recurved nocks
       g.poly([1.5, 9.8, 0.3, 11.0, 2.5, 10.6]).fill(WOOD_DARK);
       g.moveTo(1.2, -10.1).lineTo(1.2, 10.1).stroke({ width: 0.5, color: 0xd8cfae }); // string
       g.circle(1.2, 0, 0.35).fill(0xa89060); // nocking-point whip
-      drawFist(g, rng, false);
+      drawFist(g, rng, false, 0.9);
+      // leather riser-wrap over the grip: a band across the fist + stave
+      g.rect(0.1, -1.7, 2.1, 3.4).fill(LEATHER).stroke({ width: 0.35, color: WOOD_DARK });
+      for (let i = 0; i < 3; i++) {
+        const x = 0.4 + i * 0.65;
+        g.moveTo(x, -1.6).lineTo(x + 0.5, 1.6).stroke({ width: 0.25, color: OUTLINE, alpha: 0.5 });
+      }
       break;
     }
     case 'swordsman': {
