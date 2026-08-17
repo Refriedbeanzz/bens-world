@@ -90,6 +90,50 @@ export function wobblyLine(
   g.stroke({ width, color });
 }
 
+/**
+ * A crescent band hugging the inside of a circle's rim — form shading.
+ * angleCenter: where the band's middle sits; spread: half-arc; width: band depth.
+ */
+export function crescent(
+  g: Graphics,
+  cx: number,
+  cy: number,
+  r: number,
+  angleCenter: number,
+  spread: number,
+  width: number,
+  color: number,
+  alpha: number,
+): void {
+  const n = 9;
+  const pts: number[] = [];
+  for (let i = 0; i <= n; i++) {
+    const a = angleCenter - spread + (i / n) * spread * 2;
+    pts.push(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+  }
+  for (let i = n; i >= 0; i--) {
+    const a = angleCenter - spread + (i / n) * spread * 2;
+    const rr = r - width * Math.sin(((i / n) * Math.PI));
+    pts.push(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+  }
+  g.poly(pts).fill({ color, alpha });
+}
+
+/** Rivets around a helmet rim or shield edge. */
+export function rivets(
+  g: Graphics,
+  cx: number,
+  cy: number,
+  r: number,
+  count: number,
+  color: number,
+): void {
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + 0.4;
+    g.circle(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0.32).fill(color);
+  }
+}
+
 /** An irregular splat — blood pools and stains. */
 export function splat(
   g: Graphics,

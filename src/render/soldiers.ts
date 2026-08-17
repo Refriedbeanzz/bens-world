@@ -4,9 +4,11 @@ import { Rng } from '../sim/rng';
 import type { UnitKey, UnitType } from '../sim/unittype';
 import type { GoreLayer } from './gore';
 import {
+  crescent,
   HORSE_BROWN,
   LEATHER,
   OUTLINE,
+  rivets,
   SKIN,
   STEEL,
   STEEL_DARK,
@@ -17,6 +19,12 @@ import {
   wobblyEllipse,
   wobblyLine,
 } from './style';
+
+const HIGHLIGHT = 0xf2ead6;
+const SHADOW = 0x1c150e;
+// Form shading: light from the up-left of the sprite's own frame.
+const LIGHT_A = -2.35; // highlight angle
+const DARK_A = 0.79; // shadow angle
 
 // Every soldier is a 3-part rig: an armless BODY plus LEFT and RIGHT hands that
 // hold the weapons. Hands animate procedurally — swings, thrusts, bow draws —
@@ -32,6 +40,7 @@ export interface PartSet {
   body: Part;
   handL: Part;
   handR: Part;
+  shadow: Part;
 }
 
 type AnimKind = 'swing' | 'thrust' | 'lance' | 'loose';
@@ -81,16 +90,22 @@ function bake(renderer: Renderer, seed: number, draw: (g: Graphics, rng: Rng) =>
 function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number): void {
   const t = teamOf(team);
   const r = type.radius;
-  // mail hauberk under everything, with stippled rings around the fringe
+  // mail hauberk under everything, densely stippled (two interlocking rings of dots)
   wobblyCircle(g, rng, 0, 0, r * 1.02, STEEL_DARK, OUTLINE, 1.2);
-  for (let i = 0; i < 14; i++) {
-    const a = (i / 14) * Math.PI * 2 + rng.range(-0.1, 0.1);
-    g.circle(Math.cos(a) * r * 0.93, Math.sin(a) * r * 0.93, 0.32).fill(STEEL);
+  for (let ring = 0; ring < 2; ring++) {
+    const rr = r * (0.96 - ring * 0.075);
+    const n = 22 - ring * 4;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + ring * 0.14 + rng.range(-0.05, 0.05);
+      g.circle(Math.cos(a) * rr, Math.sin(a) * rr, 0.26).fill(STEEL);
+    }
   }
   // shoulder mail bumps where the (separate) arms attach
   wobblyCircle(g, rng, -r * 0.05, -r * 0.82, r * 0.3, STEEL_DARK, OUTLINE, 0.8);
   wobblyCircle(g, rng, -r * 0.05, r * 0.82, r * 0.3, STEEL_DARK, OUTLINE, 0.8);
-  // team surcoat, quartered heraldically (darker front-right quarter)
+  g.circle(-r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, -r * 0.82 + Math.sin(LIGHT_A) * r * 0.12, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.35 });
+  g.circle(-r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, r * 0.82 + Math.sin(LIGHT_A) * r * 0.12, r * 0.09).fill({ color: HIGHLIGHT, alpha: 0.35 });
+  // team surcoat, quartered heraldically, with form shading and cloth folds
   wobblyCircle(g, rng, 0, 0, r * 0.8, t.cloth, t.clothDark, 1);
   const quarter: number[] = [0, 0];
   for (let i = 0; i <= 6; i++) {
@@ -98,7 +113,12 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number): void
     quarter.push(Math.cos(a) * r * 0.78, Math.sin(a) * r * 0.78);
   }
   g.poly(quarter).fill({ color: t.clothDark, alpha: 0.65 });
-  // belt across the waist
+  crescent(g, 0, 0, r * 0.78, LIGHT_A, 1.15, r * 0.22, HIGHLIGHT, 0.22);
+  crescent(g, 0, 0, r * 0.78, DARK_A, 1.15, r * 0.22, SHADOW, 0.2);
+  // cloth folds
+  g.moveTo(-r * 0.55, -r * 0.35).quadraticCurveTo(-r * 0.2, -r * 0.15, -r * 0.6, r * 0.1).stroke({ width: 0.5, color: t.clothDark });
+  g.moveTo(-r * 0.5, r * 0.4).quadraticCurveTo(-r * 0.25, r * 0.3, -r * 0.55, r * 0.05).stroke({ width: 0.45, color: t.clothDark });
+  // belt across the waist with a trim buckle
   wobblyLine(g, rng, -r * 0.28, -r * 0.72, -r * 0.28, r * 0.72, 1.1, WOOD_DARK);
   g.circle(-r * 0.28, 0, 0.55).fill(t.trim);
 
@@ -119,11 +139,13 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number): void
     wobblyCircle(g, rng, r * 0.18, 0, r * 0.44, STEEL, STEEL_DARK, 0.9);
     wobblyCircle(g, rng, r * 0.18, 0, r * 0.24, STEEL, STEEL_DARK, 0.7);
   } else {
-    // mail coif, then a nasal helm: dome, rim, ridge, and the nasal bar forward
+    // mail coif, then a nasal helm: dome, rim rivets, ridge, nasal bar, specular
     wobblyCircle(g, rng, r * 0.16, 0, r * 0.54, STEEL_DARK, OUTLINE, 0.9);
     wobblyCircle(g, rng, r * 0.16, 0, r * 0.42, STEEL, STEEL_DARK, 1);
+    rivets(g, r * 0.16, 0, r * 0.36, 6, STEEL_DARK);
     wobblyLine(g, rng, -r * 0.2, 0, r * 0.52, 0, 0.8, STEEL_DARK); // crown ridge
     wobblyLine(g, rng, r * 0.55, 0, r * 0.85, 0, 1.1, STEEL); // nasal bar
+    g.circle(r * 0.16 + Math.cos(LIGHT_A) * r * 0.2, Math.sin(LIGHT_A) * r * 0.2, r * 0.1).fill({ color: HIGHLIGHT, alpha: 0.5 });
   }
 }
 
@@ -135,12 +157,20 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
   // haunches + barrel: two overlapping masses read as a real horse from above
   wobblyEllipse(g, rng, -r * 0.9, 0, r * 0.85, r * 0.8, coat, OUTLINE, 1.2);
   wobblyEllipse(g, rng, r * 0.25, 0, r * 1.15, r * 0.72, coat, OUTLINE, 1.2);
+  // muscle shading on the masses
+  crescent(g, -r * 0.9, 0, r * 0.72, DARK_A, 1.1, r * 0.2, SHADOW, 0.22);
+  crescent(g, r * 0.25, 0, r * 0.6, LIGHT_A, 1.0, r * 0.16, HIGHLIGHT, 0.18);
+  g.moveTo(-r * 0.35, -r * 0.45).quadraticCurveTo(-r * 0.15, 0, -r * 0.35, r * 0.45).stroke({ width: 0.5, color: OUTLINE }); // haunch line
   // neck tapering to the head
   g.poly([r * 0.9, -r * 0.42, r * 1.85, -r * 0.22, r * 1.85, r * 0.22, r * 0.9, r * 0.42])
     .fill(coat)
     .stroke({ width: 1.1, color: OUTLINE });
-  // head with ears (chanfron-armored steel for knights)
+  // head with ears, eyes, and nostrils (chanfron-armored steel for knights)
   wobblyEllipse(g, rng, r * 2.0, 0, r * 0.42, r * 0.26, heavy ? STEEL : HORSE_BROWN, OUTLINE, 1);
+  g.circle(r * 1.92, -r * 0.14, 0.4).fill(OUTLINE);
+  g.circle(r * 1.92, r * 0.14, 0.4).fill(OUTLINE);
+  g.circle(r * 2.32, -r * 0.08, 0.28).fill(SHADOW);
+  g.circle(r * 2.32, r * 0.08, 0.28).fill(SHADOW);
   g.poly([r * 1.75, -r * 0.28, r * 1.62, -r * 0.48, r * 1.88, -r * 0.36]).fill(coat).stroke({ width: 0.7, color: OUTLINE });
   g.poly([r * 1.75, r * 0.28, r * 1.62, r * 0.48, r * 1.88, r * 0.36]).fill(coat).stroke({ width: 0.7, color: OUTLINE });
   // mane running down the neck's left side
@@ -294,12 +324,17 @@ function drawHandL(g: Graphics, rng: Rng, type: UnitType, team: number): void {
 
 export function makePartSet(renderer: Renderer, team: number, type: UnitType): PartSet {
   const seed = team * 977 + type.key.length * 131 + type.hp;
+  const r = type.radius;
   return {
     body: bake(renderer, seed ^ 0x11, (g, rng) =>
       type.mounted ? drawHorseBody(g, rng, type, team) : drawFootBody(g, rng, type, team),
     ),
     handL: bake(renderer, seed ^ 0x22, (g, rng) => drawHandL(g, rng, type, team)),
     handR: bake(renderer, seed ^ 0x33, (g, rng) => drawHandR(g, rng, type, team)),
+    shadow: bake(renderer, seed ^ 0x44, (g) => {
+      if (type.mounted) g.ellipse(0.1 * r, 0, r * 2.2, r * 1.0).fill({ color: 0x000000, alpha: 0.55 });
+      else g.ellipse(0, 0, r * 1.2, r * 1.05).fill({ color: 0x000000, alpha: 0.55 });
+    }),
   };
 }
 
@@ -312,6 +347,8 @@ interface Rig {
   hr: Sprite;
   spec: RigSpec;
   radius: number;
+  mounted: boolean;
+  curRot: number;
   walkPhase: number;
   swingT: number;
   lastCooldown: number;
@@ -337,12 +374,14 @@ export class SoldierLayer {
       const spec = rigSpec(squad.unitType);
       for (const s of squad.soldiers) {
         const root = new Container();
+        const shadow = mkSprite(set.shadow);
+        shadow.alpha = 0.3;
         const body = mkSprite(set.body);
         const hl = mkSprite(set.handL);
         const hr = mkSprite(set.handR);
         hl.position.set(spec.hl[0], spec.hl[1]);
         hr.position.set(spec.hr[0], spec.hr[1]);
-        root.addChild(body, hl, hr);
+        root.addChild(shadow, body, hl, hr);
         this.container.addChild(root);
         this.rigs.set(s.id, {
           root,
@@ -351,6 +390,8 @@ export class SoldierLayer {
           hr,
           spec,
           radius: squad.unitType.radius,
+          mounted: squad.unitType.mounted,
+          curRot: s.facing,
           walkPhase: (s.id % 7) * 0.9,
           swingT: 99,
           lastCooldown: s.cooldown,
@@ -386,20 +427,35 @@ export class SoldierLayer {
         const x = s.prevX + (s.x - s.prevX) * alpha;
         const y = s.prevY + (s.y - s.prevY) * alpha;
         rig.root.position.set(x, y);
-        rig.root.rotation = s.facing;
+        // Ease the facing instead of snapping — the biggest source of jitter.
+        let rotDiff = s.facing - rig.curRot;
+        while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+        while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+        rig.curRot += rotDiff * Math.min(1, frameDt * 8);
+        rig.root.rotation = rig.curRot;
         rig.root.alpha = fade;
 
         // Blood on every wound.
         if (s.hp < rig.lastHp && gore) gore.addHitBlood(x, y, s.facing);
         rig.lastHp = s.hp;
 
-        // Walk cycle: body bob + hands counter-swinging, scaled by real speed.
+        // Gait, scaled by real speed. Footmen bob laterally with counter-swinging
+        // arms; horses surge forward-and-back in a low, smooth gallop rhythm.
         const speed = Math.hypot(s.vx, s.vy);
-        const stride = Math.min(1, speed / 60);
-        rig.walkPhase += frameDt * (3 + speed * 0.16);
-        const bob = Math.sin(rig.walkPhase) * stride;
-        rig.body.position.y = bob * 0.9;
-        const armSwing = bob * 0.22;
+        let armSwing: number;
+        if (rig.mounted) {
+          const stride = Math.min(1, speed / 110);
+          rig.walkPhase += frameDt * (1.6 + speed * 0.045);
+          rig.body.position.x = Math.sin(rig.walkPhase) * 0.6 * stride;
+          rig.body.position.y = Math.cos(rig.walkPhase * 2) * 0.15 * stride;
+          armSwing = 0;
+        } else {
+          const stride = Math.min(1, speed / 55);
+          rig.walkPhase += frameDt * (2.2 + speed * 0.09);
+          const bob = Math.sin(rig.walkPhase) * stride;
+          rig.body.position.y = bob * 0.5;
+          armSwing = bob * 0.14;
+        }
 
         // Attack detection: the sim resets cooldown upward on a swing, reload on a shot.
         if (s.cooldown > rig.lastCooldown + 0.35) rig.swingT = 0;
@@ -421,13 +477,15 @@ export class SoldierLayer {
     let hlRot = -armSwing * 0.7;
 
     if (t < 0.55) {
-      // Attack animation: wind-up, strike, recover.
+      // Attack animation: wind-up, strike, recover — each phase eased so the
+      // motion flows instead of snapping between keyframes.
+      const ease = (u: number): number => u * u * (3 - 2 * u);
       const strike = (a: number, b: number): number =>
         t < 0.14
-          ? (t / 0.14) * a
+          ? ease(t / 0.14) * a
           : t < 0.3
-            ? a + ((t - 0.14) / 0.16) * (b - a)
-            : b * (1 - (t - 0.3) / 0.25);
+            ? a + ease((t - 0.14) / 0.16) * (b - a)
+            : b * (1 - ease((t - 0.3) / 0.25));
       switch (spec.anim) {
         case 'swing':
           hrRot += strike(-0.85, 1.15);
