@@ -23,4 +23,8 @@ export const MAPS: Record<string, { name: string; spec: WorldSpec }> = {
     name: 'Greenwood',
     spec: { biome: 'forest', relief: 'rolling', treeClusters: [16, 20], rocks: [8, 12] },
   },
+  river: {
+    name: 'River Crossing',
+    spec: { biome: 'meadow', relief: 'plains', treeClusters: [4, 6], rocks: [6, 10], water: 'river' },
+  },
 };

@@ -25,6 +25,8 @@ export interface WorldSpec {
   relief: Relief;
   treeClusters: [number, number];
   rocks: [number, number];
+  /** 'river': a meandering river — deep channel impassable, crossable at shallow fords */
+  water?: 'river';
 }
 
 export const DEFAULT_SPEC: WorldSpec = {
@@ -41,6 +43,12 @@ export const DEFAULT_SPEC: WorldSpec = {
 export const TREE_SPEED_FACTOR = 1.0;
 const TREE_PATH_COST = 1.0;
 const MOUNTED_TREE_SPEED = 0.35;
+// Shallow water is slow going for everyone (per-unit waterSpeed stat) and
+// pathfinding prefers dry ground / fords over long wades.
+const SHALLOW_PATH_COST = 1.8;
+export const WATER_NONE = 0;
+export const WATER_SHALLOW = 1;
+export const WATER_DEEP = 2;
 /** Chance the canopy stops a missile whose landing point is in forest. */
 export const TREE_MISSILE_BLOCK = 0.55;
 /** Range multiplier for a shooter standing in forest. */
@@ -89,6 +97,8 @@ export class World {
   readonly height = new Float32Array(GRID_W * GRID_H);
   /** Cells blocked because they're a cliff face (for rendering). */
   readonly cliff = new Uint8Array(GRID_W * GRID_H);
+  /** 0 = dry, 1 = shallow (slows), 2 = deep (impassable). */
+  readonly water = new Uint8Array(GRID_W * GRID_H);
   readonly obstacles: Obstacle[] = [];
   readonly seed: number;
   readonly spec: WorldSpec;
@@ -98,6 +108,7 @@ export class World {
     this.spec = spec;
     this.generateHeights();
     this.markCliffs();
+    this.generateWater();
     const rng = new Rng(seed);
     this.placeTreeClusters(rng);
     this.placeRocks(rng);
@@ -123,23 +134,38 @@ export class World {
 
   /** Pathfinding cost multiplier for entering this cell (walls are skipped, not costed). */
   cellCost(cx: number, cy: number): number {
-    return this.isSlow(cx, cy) ? TREE_PATH_COST : 1;
+    let cost = this.isSlow(cx, cy) ? TREE_PATH_COST : 1;
+    if (cx >= 0 && cy >= 0 && cx < GRID_W && cy < GRID_H && this.water[cy * GRID_W + cx] === WATER_SHALLOW) {
+      cost *= SHALLOW_PATH_COST;
+    }
+    return cost;
   }
 
   /** Movement speed multiplier at a world position (terrain type only, not slope). */
   speedAt(x: number, y: number, mounted = false): number {
-    const cx = Math.floor(x / CELL);
-    const cy = Math.floor(y / CELL);
-    if (!this.isSlow(cx, cy)) return 1;
+    if (!this.isSlow(Math.floor(x / CELL), Math.floor(y / CELL))) return 1;
     return mounted ? MOUNTED_TREE_SPEED : TREE_SPEED_FACTOR;
   }
 
-  /** Is this world position on a cliff cell? (Hard wall — soldiers collide.) */
-  isCliffAt(x: number, y: number): boolean {
+  /** Combined terrain speed factor (trees + water) for a unit at a world position. */
+  moveFactor(x: number, y: number, unit: { mounted: boolean; waterSpeed: number }): number {
+    const cx = Math.floor(x / CELL);
+    const cy = Math.floor(y / CELL);
+    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return 1;
+    const i = cy * GRID_W + cx;
+    let f = 1;
+    if (this.slow[i] === 1) f *= unit.mounted ? MOUNTED_TREE_SPEED : TREE_SPEED_FACTOR;
+    if (this.water[i] === WATER_SHALLOW) f *= unit.waterSpeed;
+    return f;
+  }
+
+  /** Physically solid ground a soldier can never occupy (cliffs, deep water). */
+  isHardAt(x: number, y: number): boolean {
     const cx = Math.floor(x / CELL);
     const cy = Math.floor(y / CELL);
     if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return false;
-    return this.cliff[cy * GRID_W + cx] === 1;
+    const i = cy * GRID_W + cx;
+    return this.cliff[i] === 1 || this.water[i] === WATER_DEEP;
   }
 
   /** Is this world position under forest canopy? */
@@ -215,6 +241,35 @@ export class World {
     }
   }
 
+  // A meandering river: deep channel down the middle (impassable), shallow
+  // banks, and two shallow fords where the whole width is wadeable.
+  private generateWater(): void {
+    if (this.spec.water !== 'river') return;
+    const rng = new Rng(this.seed ^ 0x77a7e4);
+    const meander = makeLatticeNoise(rng, 1, 5);
+    const ford1 = rng.range(0.18, 0.34) * this.heightPx;
+    const ford2 = rng.range(0.64, 0.82) * this.heightPx;
+    for (let cy = 0; cy < GRID_H; cy++) {
+      const y = cy * CELL + CELL / 2;
+      const centerX = this.widthPx / 2 + (meander(0.5, cy / (GRID_H - 1)) - 0.5) * 600;
+      const nearFord = Math.abs(y - ford1) < 80 || Math.abs(y - ford2) < 80;
+      for (let cx = 0; cx < GRID_W; cx++) {
+        const dx = Math.abs(cx * CELL + CELL / 2 - centerX);
+        const i = cy * GRID_W + cx;
+        if (dx < 42) {
+          if (nearFord) {
+            this.water[i] = WATER_SHALLOW;
+          } else {
+            this.water[i] = WATER_DEEP;
+            this.blocked[i] = 1;
+          }
+        } else if (dx < 88) {
+          this.water[i] = WATER_SHALLOW;
+        }
+      }
+    }
+  }
+
   private markCliffs(): void {
     for (let cy = 0; cy < GRID_H; cy++) {
       for (let cx = 0; cx < GRID_W; cx++) {
@@ -269,8 +324,11 @@ export class World {
 
   private addObstacle(o: Obstacle): void {
     if (o.x < CELL || o.y < CELL || o.x > this.widthPx - CELL || o.y > this.heightPx - CELL) return;
-    // Don't drop obstacles onto cliff faces.
-    if (this.isBlocked(Math.floor(o.x / CELL), Math.floor(o.y / CELL))) return;
+    // Don't drop obstacles onto cliff faces or into the river.
+    const ocx = Math.floor(o.x / CELL);
+    const ocy = Math.floor(o.y / CELL);
+    if (this.isBlocked(ocx, ocy)) return;
+    if (ocx >= 0 && ocy >= 0 && ocx < GRID_W && ocy < GRID_H && this.water[ocy * GRID_W + ocx] !== WATER_NONE) return;
     this.obstacles.push(o);
     const minCx = Math.floor((o.x - o.radius) / CELL);
     const maxCx = Math.floor((o.x + o.radius) / CELL);

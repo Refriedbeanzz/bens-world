@@ -25,6 +25,8 @@ export interface UnitType {
   meleeReach: number;
   /** walk-speed multiplier for both the formation anchor and the soldiers */
   speedMult: number;
+  /** speed multiplier wading shallow water — heavy troops suffer most */
+  waterSpeed: number;
   radius: number;
   mounted: boolean;
   /** pikes blunt charge impacts and skewer mounted enemies */
@@ -44,6 +46,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     meleeCooldown: [1.3, 1.85],
     meleeReach: 19,
     speedMult: 1.0,
+    waterSpeed: 0.5,
     radius: 7,
     mounted: false,
     pike: false,
@@ -59,6 +62,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     meleeCooldown: [1.6, 2.2],
     meleeReach: 32,
     speedMult: 0.95,
+    waterSpeed: 0.55,
     radius: 7,
     mounted: false,
     pike: true,
@@ -74,6 +78,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     meleeCooldown: [1.4, 2.0],
     meleeReach: 17,
     speedMult: 1.05,
+    waterSpeed: 0.62,
     radius: 7,
     mounted: false,
     pike: false,
@@ -96,6 +101,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     meleeCooldown: [1.4, 2.0],
     meleeReach: 17,
     speedMult: 0.95,
+    waterSpeed: 0.55,
     radius: 7,
     mounted: false,
     pike: false,
@@ -118,6 +124,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     meleeCooldown: [1.4, 1.9],
     meleeReach: 22,
     speedMult: 2.1,
+    waterSpeed: 0.42,
     radius: 9,
     mounted: true,
     pike: false,
@@ -133,6 +140,7 @@ export const UNIT_TYPES: Record<UnitKey, UnitType> = {
     meleeCooldown: [1.3, 1.8],
     meleeReach: 20,
     speedMult: 2.5,
+    waterSpeed: 0.55,
     radius: 9,
     mounted: true,
     pike: false,

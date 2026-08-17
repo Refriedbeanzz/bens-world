@@ -525,7 +525,7 @@ export class Squad {
       MARCH_SPEED *
       this.unitType.speedMult *
       FORMATION_SPEED[this.formation] *
-      world.speedAt(this.anchorX, this.anchorY, this.unitType.mounted) *
+      world.moveFactor(this.anchorX, this.anchorY, this.unitType) *
       world.slopeSpeedFactor(this.anchorX, this.anchorY, Math.cos(this.facing), Math.sin(this.facing)) *
       alignment *
       bogged *
@@ -646,7 +646,7 @@ export class Squad {
         this.unitType.speedMult *
         s.pace *
         Math.min(1, dist / 30) *
-        world.speedAt(s.x, s.y, this.unitType.mounted) *
+        world.moveFactor(s.x, s.y, this.unitType) *
         world.slopeSpeedFactor(s.x, s.y, dx, dy) *
         paceMult;
       const desiredVx = dx * targetSpeed;

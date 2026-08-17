@@ -73,7 +73,12 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       const bright = (0.82 + h * 0.36) * sun;
 
       let color: number;
-      if (world.cliff[cy * GRID_W + cx] === 1) {
+      const water = world.water[cy * GRID_W + cx];
+      if (water === 2) {
+        color = shade(lerpColor(0x1d3c58, 0x2a5070, grassNoise(u, v)), 0.95);
+      } else if (water === 1) {
+        color = shade(lerpColor(0x3f6e80, 0x568897, grassNoise(u, v)), 1.0);
+      } else if (world.cliff[cy * GRID_W + cx] === 1) {
         color = shade(lerpColor(CLIFF_DARK, CLIFF_COLOR, speckle.next()), 0.75 + h * 0.45);
       } else {
         color = lerpColor(pal.dark, pal.light, grassNoise(u, v));

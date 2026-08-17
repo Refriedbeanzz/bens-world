@@ -4,6 +4,8 @@ import { Battle } from '../src/sim/battle';
 import type { FormationKind } from '../src/sim/formation';
 import { MAPS } from '../src/sim/maps';
 import { SOLDIER_RADIUS } from '../src/sim/soldier';
+import { FlowField } from '../src/sim/flowfield';
+import { UNIT_TYPES } from '../src/sim/unittype';
 import { GRID_H, GRID_W, World } from '../src/sim/world';
 
 const DT = 1 / 30;
@@ -344,6 +346,38 @@ console.log('S10: slopes, cliffs, and a ridge battle');
   if (treeCell) {
     assert(wood.speedAt(treeCell[0], treeCell[1], false) === 1, 'S10: infantry slowed by trees');
     assert(wood.speedAt(treeCell[0], treeCell[1], true) < 0.5, 'S10: horses not bogged by trees');
+  }
+
+  // River: deep channel blocks, fords keep the far bank reachable, and heavy
+  // troops wade slowest.
+  const river = new World(5555, MAPS['river']!.spec);
+  let deep = 0;
+  let shallow = 0;
+  let fordCell: [number, number] | null = null;
+  for (let cy = 0; cy < GRID_H; cy++) {
+    for (let cx = 0; cx < GRID_W; cx++) {
+      const w = river.water[cy * GRID_W + cx]!;
+      if (w === 2) {
+        deep++;
+        assert(river.isBlocked(cx, cy), 'S10: deep water cell not blocked');
+      }
+      if (w === 1) {
+        shallow++;
+        if (!fordCell) fordCell = [cx * 32 + 16, cy * 32 + 16];
+      }
+    }
+  }
+  assert(deep > 30, `S10: river has almost no deep channel (${deep} cells)`);
+  assert(shallow > 60, `S10: river has almost no shallows (${shallow} cells)`);
+  const across = new FlowField(river, river.widthPx * 0.9, river.heightPx / 2);
+  assert(
+    across.direction(river.widthPx * 0.1, river.heightPx / 2) !== null,
+    'S10: no ford — river cannot be crossed',
+  );
+  if (fordCell) {
+    const knightWade = river.moveFactor(fordCell[0], fordCell[1], UNIT_TYPES.knight);
+    const archerWade = river.moveFactor(fordCell[0], fordCell[1], UNIT_TYPES.archer);
+    assert(knightWade < archerWade, 'S10: knights not slower than archers in water');
   }
 
   const battle = new Battle(2468, undefined, { map: MAPS['ridge']!.spec });
