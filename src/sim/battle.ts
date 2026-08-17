@@ -9,7 +9,7 @@ import {
   type Soldier,
 } from './soldier';
 import type { UnitKey } from './unittype';
-import { World } from './world';
+import { TREE_MISSILE_BLOCK, TREE_SHOOTER_RANGE, World } from './world';
 
 export const PLAYER_TEAM = 0;
 
@@ -349,7 +349,9 @@ export class Battle {
         }
         s.reload -= dt;
         if (s.reload > 0) continue;
-        const target = this.grid.nearestEnemy(s.x, s.y, s.team, rp.range);
+        // No clean draw under the canopy: forest halves an archer's range.
+        const range = this.world.inTrees(s.x, s.y) ? rp.range * TREE_SHOOTER_RANGE : rp.range;
+        const target = this.grid.nearestEnemy(s.x, s.y, s.team, range);
         if (!target) continue;
         const dist = Math.hypot(target.x - s.x, target.y - s.y);
         const flightTime = dist / rp.projectileSpeed;
@@ -390,6 +392,12 @@ export class Battle {
       p.x = p.sx + (p.tx - p.sx) * k;
       p.y = p.sy + (p.ty - p.sy) * k;
       if (k < 1) continue;
+
+      // Landing in forest: the canopy catches most of what falls into it.
+      if (this.world.inTrees(p.tx, p.ty) && this.rng.next() < TREE_MISSILE_BLOCK) {
+        this.projectiles.splice(i, 1);
+        continue;
+      }
 
       // Landed: hit whoever stands closest to the point — friend or foe. Loosing
       // into a melee is a real gamble.

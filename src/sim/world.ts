@@ -15,11 +15,15 @@ export interface Obstacle {
   radius: number;
 }
 
-// Trees are passable at full speed for now — a slowdown will return later as a
-// charge-interruption mechanic. Cells are still marked so that's a two-number
-// change. Rocks are hard walls.
+// Trees have exactly ONE gameplay effect: they weaken archery (halved range
+// shooting from inside, canopy blocks missiles landing inside). Movement is
+// completely unaffected. Rocks are hard walls.
 export const TREE_SPEED_FACTOR = 1.0;
 const TREE_PATH_COST = 1.0;
+/** Chance the canopy stops a missile whose landing point is in forest. */
+export const TREE_MISSILE_BLOCK = 0.55;
+/** Range multiplier for a shooter standing in forest. */
+export const TREE_SHOOTER_RANGE = 0.5;
 
 export class World {
   readonly widthPx = GRID_W * CELL;
@@ -60,6 +64,14 @@ export class World {
     const cy = Math.floor(y / CELL);
     if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return 1;
     return this.slow[cy * GRID_W + cx] === 1 ? TREE_SPEED_FACTOR : 1;
+  }
+
+  /** Is this world position under forest canopy? */
+  inTrees(x: number, y: number): boolean {
+    const cx = Math.floor(x / CELL);
+    const cy = Math.floor(y / CELL);
+    if (cx < 0 || cy < 0 || cx >= GRID_W || cy >= GRID_H) return false;
+    return this.slow[cy * GRID_W + cx] === 1;
   }
 
   private placeTreeClusters(rng: Rng): void {
