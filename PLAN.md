@@ -49,6 +49,11 @@ animations, art style, pathfinding, formations, combat — then expand (more map
   style, battle effects (arrows, blood, dust), sound.
 - **Later**: more battlefields, battle setup screen / army picker, multiplayer (lockstep over the
   deterministic sim).
+- **Later — player-created content**: custom units (stat-editor over the unittype data blocks,
+  with stat limits and a point-cost budget so armies stay fair) and a custom map editor (paint
+  terrain cells + place obstacles/spawn zones over the existing grid world model; build after BW7
+  so every terrain type is paintable). Both are data-only thanks to current architecture, and
+  determinism means custom content works in multiplayer by just sharing the JSON at match setup.
 
 ## Unit roster wishlist (add via unittype.ts — ~20 lines each — when their mechanic lands)
 
