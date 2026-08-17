@@ -692,13 +692,13 @@ function drawProneBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
 
   // Legs: two tapering mail-clad limbs fanned from the hip, splayed unevenly
   // for a natural collapse rather than a symmetric mannequin pose.
-  const hipX = r * 0.55;
+  const hipX = -r * 0.55;
   const legLen = r * 2.0;
   for (const side of [-1, 1] as const) {
-    const bendX = hipX + legLen * 0.55;
+    const bendX = hipX - legLen * 0.55;
     const bendY = side * r * (0.3 + Math.abs(splay) * 0.4);
     const spread = side === Math.sign(splay) ? 1.15 : 0.8;
-    const footX = hipX + legLen * spread;
+    const footX = hipX - legLen * spread;
     const footY = side * r * (0.4 + Math.abs(splay) * 1.4);
     wobblyLine(g, rng, hipX, side * r * 0.22, bendX, bendY, r * 0.46, STEEL_DARK);
     wobblyLine(g, rng, bendX, bendY, footX, footY, r * 0.4, STEEL_DARK);
@@ -711,15 +711,15 @@ function drawProneBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
 
   // Torso: elongated mail hauberk + surcoat capsule, form-shaded and grimed
   // like the standing body so it still reads as the same soldier.
-  const torsoX = -r * 0.2;
+  const torsoX = r * 0.2;
   wobblyEllipse(g, rng, torsoX, 0, r * 1.2, r * 0.86, STEEL_DARK, OUTLINE, 1);
   wobblyEllipse(g, rng, torsoX, 0, r * 1.0, r * 0.68, t.cloth, t.clothDark, 1);
   paintedShade(g, torsoX, 0, r * 0.85, LIGHT_A, DARK_A, HIGHLIGHT, SHADOW);
   grime(g, rng, torsoX, 0, r * 0.95, 4, [0x5a4326, 0x3a2c18]);
-  g.circle(-r * 0.28, 0, r * 0.5).fill(t.trim).stroke({ width: 0.4, color: WOOD_DARK }); // belt buckle
+  g.circle(r * 0.28, 0, r * 0.5).fill(t.trim).stroke({ width: 0.4, color: WOOD_DARK }); // belt buckle
 
   // Head at the far end from the legs, turned to one side.
-  const headX = -r * 2.25;
+  const headX = r * 2.25;
   const headY = rng.range(-0.45, 0.45) * r;
   wobblyCircle(g, rng, headX, headY, r * 0.5, STEEL_DARK, OUTLINE, 1);
   wobblyCircle(g, rng, headX, headY, r * 0.36, armored ? STEEL : 0x8a7250, STEEL_DARK, 0.7);

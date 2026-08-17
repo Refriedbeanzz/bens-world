@@ -1,7 +1,7 @@
 import { Container, Graphics, RenderTexture, Sprite, Texture, type Renderer } from 'pixi.js';
 import { Rng } from '../sim/rng';
 import { CELL, GRID_W, GRID_H, type World } from '../sim/world';
-import { OUTLINE, paintedShade, specular, wobblyCircle, wobblyLine } from './style';
+import { OUTLINE, paintedShade, specular, wobblyCircle, wobblyEllipse, wobblyLine } from './style';
 import { drawPlant, drawRock, drawTree, PLANT_SPECIES, ROCK_SPECIES, TREE_SPECIES } from './naturalAssets';
 
 // Smooth value noise: random values on a coarse lattice, bilinearly interpolated.
@@ -242,7 +242,7 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   // toward dirt or grass by the SAME field the base wash reads — a stroke
   // drawn over a dirt patch reads as a dry/worn blade, not a random fleck.
   const brush = new Rng(world.seed ^ 0x3d17c2);
-  const brushCount = Math.round(GRID_W * GRID_H * 4.4);
+  const brushCount = Math.round(GRID_W * GRID_H * 5.8);
   for (let i = 0; i < brushCount; i++) {
     const px = brush.range(0, world.widthPx);
     const py = brush.range(0, world.heightPx);
@@ -264,7 +264,7 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   // sparse over lush grass, so it reads as the SAME ground drying out rather
   // than an unrelated overlay.
   const grit = new Rng(world.seed ^ 0x6a12f3);
-  const gritCount = Math.round(GRID_W * GRID_H * 3.2);
+  const gritCount = Math.round(GRID_W * GRID_H * 4.1);
   for (let i = 0; i < gritCount; i++) {
     const px = grit.range(0, world.widthPx);
     const py = grit.range(0, world.heightPx);
@@ -332,7 +332,7 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   // that belong in this biome, so the ground floor has real variety instead
   // of one clump shape repeated everywhere.
   const tuftRng = new Rng(world.seed ^ 0x1e5f0a);
-  const tuftCount = Math.round(GRID_W * GRID_H * pal.grassDensity * 1.25);
+  const tuftCount = Math.round(GRID_W * GRID_H * pal.grassDensity * 1.55);
   const biomePlants = PLANT_SPECIES.filter((p) => p.shape !== 'grass' && p.biomes.includes(world.spec.biome));
   for (let i = 0; i < tuftCount; i++) {
     const px = tuftRng.range(0, world.widthPx);
@@ -370,7 +370,7 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
 
   // Bushes: sparse low shrubs, avoiding trees/rocks so they don't overlap.
   const bushRng = new Rng(world.seed ^ 0x274a91);
-  const bushCount = Math.round(18 * pal.bushDensity);
+  const bushCount = Math.round(25 * pal.bushDensity);
   for (let i = 0; i < bushCount; i++) {
     const px = bushRng.range(30, world.widthPx - 30);
     const py = bushRng.range(30, world.heightPx - 30);
@@ -385,6 +385,52 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
     });
     if (tooClose) continue;
     drawBush(g, bushRng, px, py, r, pal);
+  }
+
+  // Ground litter: fallen twigs scattered across all open ground, plus a
+  // drift of dead-leaf flecks pooled around every tree base — the kind of
+  // small debris that separates a painted map from an actually lived-in one.
+  const litterRng = new Rng(world.seed ^ 0x51c8e2);
+  const twigCount = Math.round(GRID_W * GRID_H * 0.7);
+  for (let i = 0; i < twigCount; i++) {
+    const px = litterRng.range(0, world.widthPx);
+    const py = litterRng.range(0, world.heightPx);
+    const cx = Math.floor(px / CELL);
+    const cy = Math.floor(py / CELL);
+    if (!isOpenGround(world, cx, cy)) continue;
+    const a = litterRng.range(0, Math.PI * 2);
+    const len = litterRng.range(3, 7);
+    const bow = litterRng.range(-1, 1);
+    const mx = px + Math.cos(a) * len * 0.5;
+    const my = py + Math.sin(a) * len * 0.5;
+    g.moveTo(px, py)
+      .quadraticCurveTo(mx + bow, my - bow, px + Math.cos(a) * len, py + Math.sin(a) * len)
+      .stroke({ width: litterRng.range(0.5, 0.9), color: shade(pal.dirt, 0.55), alpha: litterRng.range(0.2, 0.4) });
+  }
+  const LEAF_COLORS = [0x8a5a2a, 0xb87a2e, 0x6e7a2e, 0x9c6e34];
+  for (const o of world.obstacles) {
+    if (o.kind !== 'tree') continue;
+    const n = litterRng.int(3, 7);
+    for (let i = 0; i < n; i++) {
+      const a = litterRng.range(0, Math.PI * 2);
+      const d = o.radius * litterRng.range(0.6, 1.8);
+      const px = o.x + Math.cos(a) * d;
+      const py = o.y + Math.sin(a) * d;
+      const cx = Math.floor(px / CELL);
+      const cy = Math.floor(py / CELL);
+      if (!isOpenGround(world, cx, cy)) continue;
+      wobblyEllipse(
+        g,
+        litterRng,
+        px,
+        py,
+        litterRng.range(1.2, 2.2),
+        litterRng.range(0.7, 1.2),
+        LEAF_COLORS[litterRng.int(0, LEAF_COLORS.length - 1)]!,
+        0,
+        0,
+      );
+    }
   }
 
   // Hill hachures: Inkarnate-style clustered contour ink strokes marking
@@ -504,22 +550,6 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       if (world.cliff[cy * GRID_W + cx] !== 1) continue;
       const x0 = cx * CELL;
       const y0 = cy * CELL;
-      const edges: [number, number, number, number, number, number][] = [
-        [1, 0, x0 + CELL, y0, x0 + CELL, y0 + CELL],
-        [-1, 0, x0, y0, x0, y0 + CELL],
-        [0, 1, x0, y0 + CELL, x0 + CELL, y0 + CELL],
-        [0, -1, x0, y0, x0 + CELL, y0],
-      ];
-      for (const [dx, dy, ex0, ey0, ex1, ey1] of edges) {
-        const nx = cx + dx;
-        const ny = cy + dy;
-        const neighborCliff = nx >= 0 && ny >= 0 && nx < GRID_W && ny < GRID_H && world.cliff[ny * GRID_W + nx] === 1;
-        if (neighborCliff) continue; // interior seam between two cliff cells — no edge needed
-        // Wobbly, not ruler-straight — a grid-aligned edge is exactly what
-        // makes a cliff (or river bank) read as blocky/square.
-        wobblyLine(g, cliffRng, ex0, ey0, ex1, ey1, 2.2, CLIFF_EDGE, 0.6);
-        wobblyLine(g, cliffRng, ex0, ey0, ex1, ey1, 0.8, CLIFF_STRATA_LIGHT, 0.3);
-      }
       // rock-face strata: a few roughly parallel bands within the cell
       for (let i = 0; i < 3; i++) {
         const ly = y0 + CELL * (0.22 + i * 0.28) + cliffRng.range(-2.5, 2.5);
@@ -527,6 +557,38 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
           .lineTo(x0 + CELL - 2, ly + cliffRng.range(-2, 2))
           .stroke({ width: 0.8, color: i % 2 === 0 ? CLIFF_STRATA_LIGHT : CLIFF_STRATA_DARK, alpha: 0.28 });
       }
+    }
+  }
+
+  // Cliff-edge contour, drawn continuously: the strata loop above traced
+  // straight per-cell boundaries, which read as a staircase no matter how
+  // wobbly each segment was — the underlying PATH was still grid-shaped. This
+  // instead samples the smooth bilinear cliffAt() field on a fine grid and
+  // draws short tangent strokes wherever it crosses the drop-off threshold,
+  // the same gradient-contour technique used for the hachures/dirt ink below,
+  // so the line hugs the true smooth boundary rather than the cell grid.
+  const cliffEdgeRng = new Rng(world.seed ^ 0xa41cd3);
+  const CLIFF_EDGE_SPACING = 5;
+  for (let py = CLIFF_EDGE_SPACING / 2; py < world.heightPx; py += CLIFF_EDGE_SPACING) {
+    for (let px = CLIFF_EDGE_SPACING / 2; px < world.widthPx; px += CLIFF_EDGE_SPACING) {
+      const jx = px + cliffEdgeRng.range(-1.4, 1.4);
+      const jy = py + cliffEdgeRng.range(-1.4, 1.4);
+      const here = world.cliffAt(jx, jy);
+      if (here < 0.28 || here > 0.72) continue; // only right at the drop-off band
+      const d = 4;
+      const gx = world.cliffAt(jx + d, jy) - world.cliffAt(jx - d, jy);
+      const gy = world.cliffAt(jx, jy + d) - world.cliffAt(jx, jy - d);
+      const glen = Math.hypot(gx, gy);
+      if (glen < 0.01) continue;
+      const cxr = -gy / glen;
+      const cyr = gx / glen;
+      const len = cliffEdgeRng.range(4, 7);
+      const x0e = jx - cxr * len * 0.5;
+      const y0e = jy - cyr * len * 0.5;
+      const x1e = jx + cxr * len * 0.5;
+      const y1e = jy + cyr * len * 0.5;
+      wobblyLine(g, cliffEdgeRng, x0e, y0e, x1e, y1e, 2.2, CLIFF_EDGE, 0.6);
+      wobblyLine(g, cliffEdgeRng, x0e, y0e, x1e, y1e, 0.8, CLIFF_STRATA_LIGHT, 0.28);
     }
   }
 
@@ -554,29 +616,42 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
       if (wv === 2 && waterRng.next() < 0.06) {
         specular(g, x0 + waterRng.range(6, CELL - 6), y0 + waterRng.range(6, CELL - 6), 0.9, 0.4);
       }
-      // shore foam: a light lapping line on any edge touching dry ground
-      const dryNeighbor =
-        isOpenGround(world, cx - 1, cy) ||
-        isOpenGround(world, cx + 1, cy) ||
-        isOpenGround(world, cx, cy - 1) ||
-        isOpenGround(world, cx, cy + 1);
-      if (dryNeighbor) {
-        // Explicit per-direction edges (not a formula) — a vertical edge
-        // spans the cell's full HEIGHT at a fixed x, a horizontal edge spans
-        // the full WIDTH at a fixed y; a generalized formula for this
-        // mismatched an axis on the first attempt and collapsed two of the
-        // four edges to zero-length lines.
-        const shoreEdges: [number, number, number, number, number, number][] = [
-          [1, 0, x0 + CELL, y0, x0 + CELL, y0 + CELL],
-          [-1, 0, x0, y0, x0, y0 + CELL],
-          [0, 1, x0, y0 + CELL, x0 + CELL, y0 + CELL],
-          [0, -1, x0, y0, x0 + CELL, y0],
-        ];
-        for (const [dx, dy, ex0, ey0, ex1, ey1] of shoreEdges) {
-          if (!isOpenGround(world, cx + dx, cy + dy)) continue;
-          wobblyLine(g, waterRng, ex0, ey0, ex1, ey1, 1.4, 0xdcecec, 0.3);
-        }
-      }
+    }
+  }
+
+  // Shore foam, drawn continuously: tracing per-cell edges (even wobbled)
+  // still followed the underlying grid staircase. This instead samples the
+  // smooth bilinear waterAt() field on a fine grid and draws short tangent
+  // foam strokes wherever it crosses the dry-to-shallow threshold, so the
+  // lapping line hugs the true curved shoreline rather than the cell grid —
+  // the same gradient-contour technique as the cliff edge and hachures.
+  const shoreRng = new Rng(world.seed ^ 0x8f31c6);
+  const SHORE_SPACING = 6;
+  for (let py = SHORE_SPACING / 2; py < world.heightPx; py += SHORE_SPACING) {
+    for (let px = SHORE_SPACING / 2; px < world.widthPx; px += SHORE_SPACING) {
+      const jx = px + shoreRng.range(-1.8, 1.8);
+      const jy = py + shoreRng.range(-1.8, 1.8);
+      const wet = world.waterAt(jx, jy);
+      if (wet < 0.06 || wet > 0.32) continue; // only right at the dry-to-shallow band
+      const d = 4;
+      const gx = world.waterAt(jx + d, jy) - world.waterAt(jx - d, jy);
+      const gy = world.waterAt(jx, jy + d) - world.waterAt(jx, jy - d);
+      const glen = Math.hypot(gx, gy);
+      if (glen < 0.01) continue;
+      const cxr = -gy / glen;
+      const cyr = gx / glen;
+      const len = shoreRng.range(4, 7);
+      wobblyLine(
+        g,
+        shoreRng,
+        jx - cxr * len * 0.5,
+        jy - cyr * len * 0.5,
+        jx + cxr * len * 0.5,
+        jy + cyr * len * 0.5,
+        1.4,
+        0xdcecec,
+        0.3,
+      );
     }
   }
 

@@ -1,6 +1,6 @@
 import { Graphics } from 'pixi.js';
 import { Rng } from '../sim/rng';
-import { grime, OUTLINE, paintedShade, specular, wobblyCircle, wobblyLine } from './style';
+import { grime, OUTLINE, paintedShade, smoothBlob, specular, wobblyCircle, wobblyLine } from './style';
 import type { Biome } from '../sim/world';
 
 // A procedural asset LIBRARY: named species with genuinely different
@@ -226,10 +226,10 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
         const oy = (i - (plates - 1) / 2) * r * 0.28;
         const w = r * (1.05 - i * 0.12);
         const h = r * 0.42;
-        const pts = boulderSilhouette(rng, x, y + oy, w, 8, [0.75, 1.0]).map((v, idx) =>
+        const pts = boulderSilhouette(rng, x, y + oy, w, 10, [0.82, 1.0]).map((v, idx) =>
           idx % 2 === 1 ? y + oy + (v - (y + oy)) * (h / w) : v,
         );
-        g.poly(pts).fill(shade(species.base, 1 - i * 0.08)).stroke({ width: 1, color: species.dark });
+        smoothBlob(g, pts, shade(species.base, 1 - i * 0.08), species.dark, 1);
         wobblyLine(g, rng, x - w * 0.8, y + oy - h * 0.15, x + w * 0.8, y + oy - h * 0.1, 0.5, species.dark);
         // Shading radius bounded by the plate's SHORT axis (height, not
         // width) — plates are far shorter than they are wide, and a circular
@@ -248,17 +248,17 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
         const rr = r * rng.range(0.28, 0.5);
         const px = x + Math.cos(a) * d;
         const py = y + Math.sin(a) * d;
-        const pts = boulderSilhouette(rng, px, py, rr, rng.int(5, 6), [0.7, 1.05]);
-        g.poly(pts).fill(species.base).stroke({ width: 0.7, color: species.dark });
-        // Kept safely inside this piece's own jittered silhouette (min 0.7rr).
+        const pts = boulderSilhouette(rng, px, py, rr, rng.int(8, 10), [0.82, 1.02]);
+        smoothBlob(g, pts, species.base, species.dark, 0.7);
+        // Kept safely inside this piece's own jittered silhouette (min 0.82rr).
         paintedShade(g, px, py, rr * 0.62, LIGHT_A, DARK_A, 0xe8e4d8, 0x000000);
       }
       break;
     }
     case 'faceted': {
-      const pts = boulderSilhouette(rng, x, y, r, rng.int(6, 8), [0.72, 1.1]);
-      g.poly(pts).fill(species.base).stroke({ width: 1.2, color: species.dark });
-      // Kept inside the silhouette's minimum jitter (0.72r) so the shading
+      const pts = boulderSilhouette(rng, x, y, r, rng.int(9, 12), [0.84, 1.06]);
+      smoothBlob(g, pts, species.base, species.dark, 1.2);
+      // Kept inside the silhouette's minimum jitter (0.84r) so the shading
       // never pokes past the actual jagged edge — that gap was the "aura."
       paintedShade(g, x, y, r * 0.62, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       const cracks = rng.int(3, 5);
@@ -272,8 +272,8 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
       break;
     }
     case 'pitted': {
-      const pts = boulderSilhouette(rng, x, y, r, rng.int(7, 9), [0.72, 1.0]);
-      g.poly(pts).fill(species.base).stroke({ width: 1.1, color: species.dark });
+      const pts = boulderSilhouette(rng, x, y, r, rng.int(9, 12), [0.84, 1.0]);
+      smoothBlob(g, pts, species.base, species.dark, 1.1);
       paintedShade(g, x, y, r * 0.62, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       for (let i = 0; i < rng.int(5, 9); i++) {
         const a = rng.range(0, Math.PI * 2);
@@ -286,9 +286,9 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
       break;
     }
     default: {
-      // boulder — the classic irregular wobbly mass.
-      const pts = boulderSilhouette(rng, x, y, r, rng.int(7, 10), [0.62, 1.08]);
-      g.poly(pts).fill(species.base).stroke({ width: 1.2, color: species.dark });
+      // boulder — a smooth, rounded river-stone mass.
+      const pts = boulderSilhouette(rng, x, y, r, rng.int(10, 13), [0.86, 1.05]);
+      smoothBlob(g, pts, species.base, species.dark, 1.2);
       paintedShade(g, x, y, r * 0.55, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       const cracks = rng.int(2, 3);
       for (let i = 0; i < cracks; i++) {
@@ -320,8 +320,8 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
       const a = rng.range(0, Math.PI * 2);
       const d = r * rng.range(0.8, 1.15);
       const pr = r * rng.range(0.15, 0.3);
-      const pts = boulderSilhouette(rng, x + Math.cos(a) * d, y + Math.sin(a) * d, pr, rng.int(5, 6), [0.75, 1.05]);
-      g.poly(pts).fill(species.base).stroke({ width: 0.7, color: species.dark });
+      const pts = boulderSilhouette(rng, x + Math.cos(a) * d, y + Math.sin(a) * d, pr, rng.int(8, 10), [0.85, 1.02]);
+      smoothBlob(g, pts, species.base, species.dark, 0.7);
     }
   }
 }

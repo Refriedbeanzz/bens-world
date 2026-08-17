@@ -78,6 +78,34 @@ export function wobblyEllipse(
 }
 
 /**
+ * Fill+stroke a smooth closed blob through a jittered point ring — replaces
+ * straight polygon edges with quadratic curves through edge midpoints (each
+ * original vertex becomes a curve control point), so a handful of irregular
+ * vertices reads as a rounded organic mass instead of a faceted gem.
+ */
+export function smoothBlob(
+  g: Graphics,
+  pts: number[],
+  fill: number,
+  outline: number = OUTLINE,
+  outlineWidth = 1.1,
+): void {
+  const n = pts.length / 2;
+  const mid = (i: number): [number, number] => {
+    const j = (i + 1) % n;
+    return [(pts[i * 2]! + pts[j * 2]!) / 2, (pts[i * 2 + 1]! + pts[j * 2 + 1]!) / 2];
+  };
+  const [mx0, my0] = mid(n - 1);
+  g.moveTo(mx0, my0);
+  for (let i = 0; i < n; i++) {
+    const [mx, my] = mid(i);
+    g.quadraticCurveTo(pts[i * 2]!, pts[i * 2 + 1]!, mx, my);
+  }
+  g.fill(fill);
+  if (outlineWidth > 0) g.stroke({ width: outlineWidth, color: outline });
+}
+
+/**
  * A hand-wobbled line (for shafts, blades, ridges), drawn as separate
  * scratchy segments with per-segment width jitter — a rougher, more inked
  * feel than one smooth uniform stroke.

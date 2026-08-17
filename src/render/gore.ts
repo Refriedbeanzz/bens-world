@@ -82,10 +82,10 @@ export class GoreLayer {
         hr.rotation = rng.range(-2.4, 2.4);
       } else {
         // Arms fallen near the torso/shoulder area of the PRONE body (drawn
-        // head-first along local -x), one flung wider than the other.
-        hl.position.set(rng.range(-16, -8), rng.range(-9, -3));
+        // head-first along local +x), one flung wider than the other.
+        hl.position.set(rng.range(8, 16), rng.range(-9, -3));
         hl.rotation = rng.range(-2.6, 2.6);
-        hr.position.set(rng.range(-16, -6), rng.range(3, 11));
+        hr.position.set(rng.range(6, 16), rng.range(3, 11));
         hr.rotation = rng.range(-2.6, 2.6);
       }
       corpse.addChild(body, hl, hr);
