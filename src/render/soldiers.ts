@@ -149,62 +149,120 @@ function drawFootBody(g: Graphics, rng: Rng, type: UnitType, team: number): void
   }
 }
 
+// Half-silhouette of a horse seen from above (facing +x), in units of r.
+// Broad haunches, narrow loin, shoulders, long tapering neck, narrow head.
+const HORSE_HALF: [number, number][] = [
+  [-1.82, 0.3],
+  [-1.72, 0.58],
+  [-1.35, 0.76],
+  [-0.95, 0.78],
+  [-0.45, 0.64],
+  [0.1, 0.6],
+  [0.55, 0.66],
+  [0.95, 0.52],
+  [1.35, 0.34],
+  [1.7, 0.26],
+  [2.0, 0.24],
+  [2.25, 0.17],
+  [2.42, 0.09],
+];
+
+function horseOutline(r: number, rng: Rng): number[] {
+  const pts: number[] = [-1.86 * r, 0];
+  for (const [x, y] of HORSE_HALF) {
+    const j = 1 + rng.range(-0.03, 0.03);
+    pts.push(x * r, y * r * j);
+  }
+  pts.push(2.48 * r, 0);
+  for (let i = HORSE_HALF.length - 1; i >= 0; i--) {
+    const [x, y] = HORSE_HALF[i]!;
+    const j = 1 + rng.range(-0.03, 0.03);
+    pts.push(x * r, -y * r * j);
+  }
+  return pts;
+}
+
 function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): void {
   const t = teamOf(team);
   const r = type.radius;
   const heavy = type.key === 'knight';
   const coat = heavy ? t.cloth : HORSE_BROWN;
-  // haunches + barrel: two overlapping masses read as a real horse from above
-  wobblyEllipse(g, rng, -r * 0.9, 0, r * 0.85, r * 0.8, coat, OUTLINE, 1.2);
-  wobblyEllipse(g, rng, r * 0.25, 0, r * 1.15, r * 0.72, coat, OUTLINE, 1.2);
-  // muscle shading on the masses
-  crescent(g, -r * 0.9, 0, r * 0.72, DARK_A, 1.1, r * 0.2, SHADOW, 0.22);
-  crescent(g, r * 0.25, 0, r * 0.6, LIGHT_A, 1.0, r * 0.16, HIGHLIGHT, 0.18);
-  g.moveTo(-r * 0.35, -r * 0.45).quadraticCurveTo(-r * 0.15, 0, -r * 0.35, r * 0.45).stroke({ width: 0.5, color: OUTLINE }); // haunch line
-  // neck tapering to the head
-  g.poly([r * 0.9, -r * 0.42, r * 1.85, -r * 0.22, r * 1.85, r * 0.22, r * 0.9, r * 0.42])
-    .fill(coat)
-    .stroke({ width: 1.1, color: OUTLINE });
-  // head with ears, eyes, and nostrils (chanfron-armored steel for knights)
-  wobblyEllipse(g, rng, r * 2.0, 0, r * 0.42, r * 0.26, heavy ? STEEL : HORSE_BROWN, OUTLINE, 1);
-  g.circle(r * 1.92, -r * 0.14, 0.4).fill(OUTLINE);
-  g.circle(r * 1.92, r * 0.14, 0.4).fill(OUTLINE);
-  g.circle(r * 2.32, -r * 0.08, 0.28).fill(SHADOW);
-  g.circle(r * 2.32, r * 0.08, 0.28).fill(SHADOW);
-  g.poly([r * 1.75, -r * 0.28, r * 1.62, -r * 0.48, r * 1.88, -r * 0.36]).fill(coat).stroke({ width: 0.7, color: OUTLINE });
-  g.poly([r * 1.75, r * 0.28, r * 1.62, r * 0.48, r * 1.88, r * 0.36]).fill(coat).stroke({ width: 0.7, color: OUTLINE });
-  // mane running down the neck's left side
-  wobblyLine(g, rng, r * 0.85, -r * 0.34, r * 1.8, -r * 0.18, 1.3, heavy ? t.clothDark : 0x4a3520);
-  // tail
-  wobblyLine(g, rng, -r * 1.7, 0, -r * 2.15, rng.range(-2, 2), 1.4, heavy ? t.clothDark : 0x4a3520);
+
+  // tail first, behind the body
+  wobblyLine(g, rng, -r * 1.8, 0, -r * 2.25, rng.range(-1.5, 1.5), 1.5, heavy ? t.clothDark : 0x4a3520);
+  wobblyLine(g, rng, -r * 1.8, 0, -r * 2.2, rng.range(-2.5, 2.5), 0.8, heavy ? t.clothDark : 0x3a2a18);
+
+  // one continuous body silhouette
+  g.poly(horseOutline(r, rng)).fill(coat).stroke({ width: 1.25, color: OUTLINE });
+
+  // ears: two small triangles just behind the head, angled outward
+  g.poly([r * 1.86, -r * 0.2, r * 1.7, -r * 0.42, r * 1.98, -r * 0.28]).fill(coat).stroke({ width: 0.6, color: OUTLINE });
+  g.poly([r * 1.86, r * 0.2, r * 1.7, r * 0.42, r * 1.98, r * 0.28]).fill(coat).stroke({ width: 0.6, color: OUTLINE });
+
+  // muscle shading: shadow along the right flank, light along the left
+  crescent(g, -r * 0.9, 0, r * 0.68, DARK_A, 1.0, r * 0.18, SHADOW, 0.2);
+  crescent(g, r * 0.3, 0, r * 0.52, LIGHT_A, 0.9, r * 0.14, HIGHLIGHT, 0.16);
+  // haunch and shoulder muscle lines
+  g.moveTo(-r * 0.5, -r * 0.5).quadraticCurveTo(-r * 0.3, 0, -r * 0.5, r * 0.5).stroke({ width: 0.5, color: OUTLINE });
+  g.moveTo(r * 0.85, -r * 0.4).quadraticCurveTo(r * 0.95, 0, r * 0.85, r * 0.4).stroke({ width: 0.45, color: OUTLINE });
+
+  // head: chanfron plate for knights, blaze stripe for cavalry; eyes + nostrils
   if (heavy) {
-    // caparison trim + scalloped hem dots
-    wobblyLine(g, rng, -r * 1.5, -r * 0.62, r * 1.1, -r * 0.55, 0.9, t.trim);
-    wobblyLine(g, rng, -r * 1.5, r * 0.62, r * 1.1, r * 0.55, 0.9, t.trim);
-    for (let i = 0; i < 6; i++) {
-      const x = -r * 1.4 + i * r * 0.42;
-      g.circle(x, -r * 0.72, 0.45).fill(t.trim);
-      g.circle(x, r * 0.72, 0.45).fill(t.trim);
+    g.poly([r * 1.95, -r * 0.2, r * 2.38, -r * 0.1, r * 2.38, r * 0.1, r * 1.95, r * 0.2])
+      .fill(STEEL)
+      .stroke({ width: 0.7, color: STEEL_DARK });
+  } else {
+    wobblyLine(g, rng, r * 1.95, 0, r * 2.42, 0, 1, 0xe8dcc8);
+  }
+  g.circle(r * 1.93, -r * 0.19, 0.38).fill(OUTLINE);
+  g.circle(r * 1.93, r * 0.19, 0.38).fill(OUTLINE);
+  g.circle(r * 2.4, -r * 0.07, 0.25).fill(SHADOW);
+  g.circle(r * 2.4, r * 0.07, 0.25).fill(SHADOW);
+
+  // mane: short strands falling off the neck's left side
+  for (let i = 0; i < 6; i++) {
+    const x = r * (0.95 + i * 0.15);
+    const yTop = -r * (0.42 - i * 0.03);
+    wobblyLine(g, rng, x, yTop, x - r * 0.08, yTop - r * 0.14, 0.9, heavy ? t.clothDark : 0x4a3520);
+  }
+
+  if (heavy) {
+    // caparison: trim border following the body, scalloped hem dots
+    const border = horseOutline(r * 0.86, rng);
+    g.poly(border).stroke({ width: 0.8, color: t.trim });
+    for (let i = 0; i < 7; i++) {
+      const x = -r * 1.5 + i * r * 0.45;
+      g.circle(x, -r * 0.66 + Math.abs(x) * 0.04, 0.42).fill(t.trim);
+      g.circle(x, r * 0.66 - Math.abs(x) * 0.04, 0.42).fill(t.trim);
     }
   } else {
-    // saddle cloth in team colors with trim edge
-    wobblyEllipse(g, rng, -r * 0.2, 0, r * 0.62, r * 0.6, t.cloth, t.clothDark, 0.9);
-    wobblyLine(g, rng, -r * 0.72, -r * 0.5, -r * 0.72, r * 0.5, 0.8, t.trim);
+    // saddle cloth under the rider, trimmed edges
+    g.poly([-r * 0.62, -r * 0.58, r * 0.42, -r * 0.52, r * 0.42, r * 0.52, -r * 0.62, r * 0.58])
+      .fill(t.cloth)
+      .stroke({ width: 0.8, color: t.clothDark });
+    wobblyLine(g, rng, -r * 0.55, -r * 0.52, -r * 0.55, r * 0.52, 0.7, t.trim);
+    wobblyLine(g, rng, r * 0.35, -r * 0.48, r * 0.35, r * 0.48, 0.7, t.trim);
   }
+
   // kite shield slung along the left flank
-  g.poly([-r * 1.05, -r * 0.72, -r * 0.2, -r * 0.86, r * 0.25, -r * 0.72, -r * 0.4, -r * 0.6])
+  g.poly([-r * 0.95, -r * 0.6, -r * 0.35, -r * 0.78, r * 0.2, -r * 0.66, -r * 0.35, -r * 0.52])
     .fill(t.cloth)
     .stroke({ width: 1, color: OUTLINE });
-  // rider: shoulders + helm
-  wobblyEllipse(g, rng, -r * 0.25, 0, r * 0.38, r * 0.52, t.cloth, t.clothDark, 0.9);
+  g.circle(-r * 0.35, -r * 0.65, 0.6).fill(STEEL);
+
+  // rider at the withers: shoulders, then the helm
+  wobblyEllipse(g, rng, -r * 0.1, 0, r * 0.36, r * 0.5, t.cloth, t.clothDark, 0.9);
+  crescent(g, -r * 0.1, 0, r * 0.42, LIGHT_A, 0.9, r * 0.12, HIGHLIGHT, 0.3);
   if (heavy) {
-    // flat-topped great helm with breath-slit cross
-    wobblyCircle(g, rng, -r * 0.18, 0, r * 0.4, STEEL, OUTLINE, 1.1);
-    wobblyLine(g, rng, -r * 0.18, -r * 0.3, -r * 0.18, r * 0.3, 0.7, STEEL_DARK);
-    wobblyLine(g, rng, -r * 0.4, 0, r * 0.1, 0, 0.7, STEEL_DARK);
+    // flat-topped great helm, breath-slit cross, rim rivets
+    wobblyCircle(g, rng, -r * 0.05, 0, r * 0.36, STEEL, OUTLINE, 1.1);
+    rivets(g, -r * 0.05, 0, r * 0.29, 5, STEEL_DARK);
+    wobblyLine(g, rng, -r * 0.05, -r * 0.26, -r * 0.05, r * 0.26, 0.65, STEEL_DARK);
+    wobblyLine(g, rng, -r * 0.24, 0, r * 0.2, 0, 0.65, STEEL_DARK);
   } else {
-    wobblyCircle(g, rng, -r * 0.18, 0, r * 0.34, STEEL, STEEL_DARK, 0.9);
-    wobblyLine(g, rng, -r * 0.02, 0, r * 0.22, 0, 0.9, STEEL); // nasal
+    wobblyCircle(g, rng, -r * 0.05, 0, r * 0.3, STEEL, STEEL_DARK, 0.9);
+    wobblyLine(g, rng, r * 0.1, 0, r * 0.32, 0, 0.85, STEEL); // nasal
+    g.circle(-r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, Math.sin(LIGHT_A) * r * 0.12, r * 0.07).fill({ color: HIGHLIGHT, alpha: 0.5 });
   }
 }
 
