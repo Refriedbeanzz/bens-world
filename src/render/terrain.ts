@@ -265,6 +265,59 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
     drawBush(g, bushRng, px, py, r, pal);
   }
 
+  // Hill hachures: Inkarnate-style clustered contour ink strokes marking
+  // raised ground. Flat terrain (plains, valley floors) gets none at all;
+  // hachures thicken and stack toward a hilltop, tracing its contour lines
+  // with one lighter "sunlit" stroke nearest the crest.
+  const hachRng = new Rng(world.seed ^ 0x4c9e21);
+  const HACH_INK = 0x362c1c;
+  const HACH_LIGHT = 0xcfc088;
+  const HACH_SPACING = 26;
+  for (let py = HACH_SPACING / 2; py < world.heightPx; py += HACH_SPACING) {
+    for (let px = HACH_SPACING / 2; px < world.widthPx; px += HACH_SPACING) {
+      const jx = px + hachRng.range(-7, 7);
+      const jy = py + hachRng.range(-7, 7);
+      const cx = Math.floor(jx / CELL);
+      const cy = Math.floor(jy / CELL);
+      if (!isOpenGround(world, cx, cy)) continue;
+      const h = world.heightAt(jx, jy);
+      const hillT = Math.min(1, Math.max(0, (h - 0.56) / 0.3));
+      if (hillT < 0.04) continue; // flat ground: no marks at all
+
+      const d = 12;
+      const gx = world.heightAt(jx + d, jy) - world.heightAt(jx - d, jy);
+      const gy = world.heightAt(jx, jy + d) - world.heightAt(jx, jy - d);
+      const glen = Math.hypot(gx, gy) || 0.0001;
+      const ux = gx / glen; // points uphill
+      const uy = gy / glen;
+      const cxr = -uy; // contour direction (perpendicular to slope)
+      const cyr = ux;
+
+      const strokes = 2 + Math.round(hillT * 3);
+      const len = 6 + hillT * 8;
+      for (let i = 0; i < strokes; i++) {
+        const off = i * 3.1; // each successive stroke sits further uphill
+        const strokeLen = len * (1 - (i / strokes) * 0.4); // rings taper as they near the crest
+        const ox = jx + ux * off;
+        const oy = jy + uy * off;
+        const x0 = ox - cxr * strokeLen * 0.5;
+        const y0 = oy - cyr * strokeLen * 0.5;
+        const x1 = ox + cxr * strokeLen * 0.5;
+        const y1 = oy + cyr * strokeLen * 0.5;
+        const bowX = ox + ux * 1.5;
+        const bowY = oy + uy * 1.5;
+        const isCrest = i === strokes - 1;
+        g.moveTo(x0, y0)
+          .quadraticCurveTo(bowX, bowY, x1, y1)
+          .stroke({
+            width: 0.7,
+            color: isCrest ? HACH_LIGHT : HACH_INK,
+            alpha: hillT * (isCrest ? 0.32 : 0.4),
+          });
+      }
+    }
+  }
+
   const texture = RenderTexture.create({ width: world.widthPx, height: world.heightPx });
   renderer.render({ container: g, target: texture });
   g.destroy();
