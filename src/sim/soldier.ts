@@ -37,4 +37,9 @@ export interface Soldier {
   radius: number;
   // seconds until this soldier can shoot again; -1 = hasn't nocked yet (staggered first volley)
   reload: number;
+  // Human imperfection, fixed per man: a personal offset from his exact slot and
+  // a personal walking pace, so ranks read as men, not graph paper.
+  jitterX: number;
+  jitterY: number;
+  pace: number;
 }

@@ -1,5 +1,5 @@
 import { FlowField } from './flowfield';
-import { FORMATION_SPEED, layoutSlots, type FormationKind, type Slot } from './formation';
+import { FORMATION_JITTER, FORMATION_SPEED, layoutSlots, type FormationKind, type Slot } from './formation';
 import {
   MELEE_PURSUE,
   SOLDIER_ACCEL,
@@ -45,6 +45,14 @@ const SURGE_SPEED_MULT = 0.75;
 
 export type SquadState = 'steady' | 'routing' | 'fleeing';
 export type SoldierLookup = (id: number) => Soldier | undefined;
+
+// Deterministic per-soldier randomness derived from the id — no RNG calls, so
+// battle replay determinism is untouched.
+function hash01(n: number, salt: number): number {
+  let t = (Math.imul(n, 374761393) + Math.imul(salt, 668265263)) >>> 0;
+  t = Math.imul(t ^ (t >>> 13), 1274126177) >>> 0;
+  return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
+}
 
 // True when the straight segment crosses nothing but open ground. Forest counts as
 // "not clear" — not because it's impassable, but so the decision to cut through vs
@@ -130,8 +138,11 @@ export class Squad {
     this.slots = layoutSlots(formation, count, this.slotScale());
     for (let i = 0; i < count; i++) {
       const [sx, sy] = this.slotWorld(i);
+      const id = allocId();
+      const jAngle = hash01(id, 1) * Math.PI * 2;
+      const jRadius = hash01(id, 2) * 5.5;
       this.soldiers.push({
-        id: allocId(),
+        id,
         team,
         x: sx,
         y: sy,
@@ -149,6 +160,9 @@ export class Squad {
         chargeBonus: false,
         radius: this.unitType.radius,
         reload: -1,
+        jitterX: Math.cos(jAngle) * jRadius,
+        jitterY: Math.sin(jAngle) * jRadius,
+        pace: 0.93 + hash01(id, 3) * 0.14,
       });
     }
   }
@@ -417,7 +431,10 @@ export class Squad {
         stopRange = this.unitType.meleeReach * 0.8;
       } else {
         s.targetId = 0;
-        const [slotX, slotY] = this.slotWorld(s.slot);
+        let [slotX, slotY] = this.slotWorld(s.slot);
+        const jitter = FORMATION_JITTER[this.formation];
+        slotX += s.jitterX * jitter;
+        slotY += s.jitterY * jitter;
         // Cohesion ladder: head for the slot; if rocks block that AND we're far from
         // the squad, funnel toward the anchor (so everyone rounds terrain on the SAME
         // side the formation took), or navigate solo by flow field if even the anchor
@@ -462,7 +479,12 @@ export class Squad {
         paceMult = rawDist < this.unitType.meleeReach * 2 ? FIGHTING_SPEED_MULT : SURGE_SPEED_MULT;
       }
       const targetSpeed =
-        SOLDIER_MAX_SPEED * this.unitType.speedMult * Math.min(1, dist / 30) * world.speedAt(s.x, s.y) * paceMult;
+        SOLDIER_MAX_SPEED *
+        this.unitType.speedMult *
+        s.pace *
+        Math.min(1, dist / 30) *
+        world.speedAt(s.x, s.y) *
+        paceMult;
       const desiredVx = dx * targetSpeed;
       const desiredVy = dy * targetSpeed;
 

@@ -30,6 +30,18 @@ const WALL_DEPTH = 16;
 const LOOSE_SPACING = 38;
 
 /** scale: spacing multiplier — mounted units need more room (radius / footman radius). */
+// How much of a soldier's personal slot-jitter each formation tolerates:
+// drilled-tight shapes suppress it, open order amplifies it.
+export const FORMATION_JITTER: Record<FormationKind, number> = {
+  line: 1,
+  column: 1,
+  wedge: 1,
+  square: 1,
+  wall: 0.35,
+  loose: 1.6,
+  circle: 0.6,
+};
+
 export function layoutSlots(kind: FormationKind, count: number, scale = 1): Slot[] {
   const slots = ((): Slot[] => {
     switch (kind) {
