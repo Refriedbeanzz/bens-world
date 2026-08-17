@@ -105,6 +105,16 @@ async function boot(): Promise<void> {
   let lineDragging = false;
   let lineFlip = false; // Tab while dragging flips which way the line faces
   let flankMode = false;
+  // Lead mode: both mouse buttons held — selected squads continuously follow the cursor.
+  let leftDown = false;
+  let rightDown = false;
+  let leading = false;
+  let suppressUps = false;
+  let leadClock = 0;
+  let leadLastX = NaN;
+  let leadLastY = NaN;
+  let mouseX = 0;
+  let mouseY = 0;
 
   const clampX = (x: number) => Math.min(world.widthPx - 40, Math.max(40, x));
   const clampY = (y: number) => Math.min(world.heightPx - 40, Math.max(40, y));
@@ -113,6 +123,22 @@ async function boot(): Promise<void> {
     markerColor = color;
     markerAge = 0;
     orderMarker.position.set(wx, wy);
+  };
+
+  // Group-move preserving relative spacing.
+  const groupMove = (wx: number, wy: number, withMarker: boolean): void => {
+    let cx = 0;
+    let cy = 0;
+    for (const squad of selected) {
+      cx += squad.anchorX;
+      cy += squad.anchorY;
+    }
+    cx /= selected.size;
+    cy /= selected.size;
+    for (const squad of selected) {
+      squad.orderMove(clampX(wx + squad.anchorX - cx), clampY(wy + squad.anchorY - cy), battle.world);
+    }
+    if (withMarker) showMarker(wx, wy, 0xf0e8c0);
   };
 
   // Simple right-click: attack what's under the cursor, flank it in flank mode,
@@ -129,18 +155,7 @@ async function boot(): Promise<void> {
       flankMode = false;
       return;
     }
-    let cx = 0;
-    let cy = 0;
-    for (const squad of selected) {
-      cx += squad.anchorX;
-      cy += squad.anchorY;
-    }
-    cx /= selected.size;
-    cy /= selected.size;
-    for (const squad of selected) {
-      squad.orderMove(clampX(wx + squad.anchorX - cx), clampY(wy + squad.anchorY - cy), battle.world);
-    }
-    showMarker(wx, wy, 0xf0e8c0);
+    groupMove(wx, wy, true);
   };
 
   // Battle-line geometry shared by the ghost preview and the real order.
@@ -213,6 +228,23 @@ async function boot(): Promise<void> {
   };
 
   app.canvas.addEventListener('pointerdown', (e) => {
+    if (e.button === 0) leftDown = true;
+    if (e.button === 2) rightDown = true;
+    // Both buttons + a selection = lead mode; cancel any pending drag gestures.
+    if (leftDown && rightDown && selected.size > 0) {
+      leading = true;
+      suppressUps = true;
+      dragStart = null;
+      dragNow = null;
+      boxing = false;
+      rightStart = null;
+      rightNow = null;
+      lineDragging = false;
+      leadClock = 1; // order immediately
+      leadLastX = NaN;
+      leadLastY = NaN;
+      return;
+    }
     if (e.button === 0) {
       dragStart = { x: e.clientX, y: e.clientY };
       dragNow = dragStart;
@@ -226,6 +258,8 @@ async function boot(): Promise<void> {
   });
 
   window.addEventListener('pointermove', (e) => {
+    mouseX = e.clientX;
+    mouseY = e.clientY;
     if (dragStart) {
       dragNow = { x: e.clientX, y: e.clientY };
       if (!boxing && Math.hypot(dragNow.x - dragStart.x, dragNow.y - dragStart.y) > DRAG_THRESHOLD) {
@@ -241,6 +275,14 @@ async function boot(): Promise<void> {
   });
 
   window.addEventListener('pointerup', (e) => {
+    if (e.button === 0) leftDown = false;
+    if (e.button === 2) rightDown = false;
+    if (suppressUps) {
+      // Ending (or partially releasing) lead mode — swallow the click.
+      leading = false;
+      if (!leftDown && !rightDown) suppressUps = false;
+      return;
+    }
     if (e.button === 2 && rightStart) {
       const start = rightStart;
       const now = { x: e.clientX, y: e.clientY };
@@ -465,9 +507,32 @@ async function boot(): Promise<void> {
         }
       }
 
+      // Lead mode: selected squads continuously follow the cursor.
+      if (leading && selected.size > 0) {
+        leadClock += frameDt;
+        const [wx, wy] = camera.screenToWorld(mouseX, mouseY);
+        if (
+          leadClock > 0.2 &&
+          (Number.isNaN(leadLastX) || Math.hypot(wx - leadLastX, wy - leadLastY) > 45)
+        ) {
+          leadClock = 0;
+          leadLastX = wx;
+          leadLastY = wy;
+          groupMove(wx, wy, false);
+        }
+      }
+
       // Battle-line ghost while right-dragging: one dot per soldier, exactly
       // where he will stand (same math as the real order), plus a facing arrow.
       ghostLayer.clear();
+      if (leading && selected.size > 0) {
+        const [wx, wy] = camera.screenToWorld(mouseX, mouseY);
+        ghostLayer
+          .circle(wx, wy, 9)
+          .stroke({ width: 2.5, color: 0xf0d878, alpha: 0.9 })
+          .circle(wx, wy, 3)
+          .fill({ color: 0xf0d878, alpha: 0.9 });
+      }
       if (lineDragging && rightStart && rightNow && selected.size > 0) {
         const sw = camera.screenToWorld(rightStart.x, rightStart.y);
         const ew = camera.screenToWorld(rightNow.x, rightNow.y);
