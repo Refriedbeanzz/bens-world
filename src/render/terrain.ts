@@ -1,7 +1,7 @@
 import { Container, Graphics, RenderTexture, Sprite, type Renderer } from 'pixi.js';
 import { Rng } from '../sim/rng';
 import { CELL, GRID_W, GRID_H, type World } from '../sim/world';
-import { OUTLINE, paintedShade, wobblyCircle } from './style';
+import { OUTLINE, paintedShade, specular, wobblyCircle } from './style';
 import { drawPlant, drawRock, drawTree, PLANT_SPECIES, ROCK_SPECIES, TREE_SPECIES } from './naturalAssets';
 
 // Smooth value noise: random values on a coarse lattice, bilinearly interpolated.
@@ -187,6 +187,10 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
         const dirtT = dirtLeanAt(px, py);
         if (dirtT > 0) color = lerpColor(color, pal.dirt, dirtT * 0.85);
         color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.1);
+        // Elevation wash: high ground warms toward a sunlit tan, so a hill
+        // reads at a glance instead of needing the hachure ink up close.
+        const hillWarm = Math.min(1, Math.max(0, (h - 0.56) / 0.32));
+        if (hillWarm > 0) color = lerpColor(color, 0xcdbb78, hillWarm * 0.22);
         color = shade(color, bright * 0.86);
       }
       g.rect(px - SUB / 2, py - SUB / 2, SUB, SUB).fill(color);
@@ -373,6 +377,92 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
             color: isCrest ? HACH_LIGHT : HACH_INK,
             alpha: hillT * (isCrest ? 0.32 : 0.4),
           });
+      }
+    }
+  }
+
+  // Cliff faces: a strong dark contour right at the actual drop-off (the
+  // border between a cliff cell and open/water ground) so it reads instantly
+  // as an impassable wall, plus layered strata texture within the face.
+  const cliffRng = new Rng(world.seed ^ 0x9c41e7);
+  const CLIFF_EDGE = 0x1c1712;
+  const CLIFF_STRATA_LIGHT = lerpColor(CLIFF_COLOR, 0xffffff, 0.18);
+  const CLIFF_STRATA_DARK = shade(CLIFF_DARK, 0.75);
+  for (let cy = 0; cy < GRID_H; cy++) {
+    for (let cx = 0; cx < GRID_W; cx++) {
+      if (world.cliff[cy * GRID_W + cx] !== 1) continue;
+      const x0 = cx * CELL;
+      const y0 = cy * CELL;
+      const edges: [number, number, number, number, number, number][] = [
+        [1, 0, x0 + CELL, y0, x0 + CELL, y0 + CELL],
+        [-1, 0, x0, y0, x0, y0 + CELL],
+        [0, 1, x0, y0 + CELL, x0 + CELL, y0 + CELL],
+        [0, -1, x0, y0, x0 + CELL, y0],
+      ];
+      for (const [dx, dy, ex0, ey0, ex1, ey1] of edges) {
+        const nx = cx + dx;
+        const ny = cy + dy;
+        const neighborCliff = nx >= 0 && ny >= 0 && nx < GRID_W && ny < GRID_H && world.cliff[ny * GRID_W + nx] === 1;
+        if (neighborCliff) continue; // interior seam between two cliff cells — no edge needed
+        g.moveTo(ex0, ey0).lineTo(ex1, ey1).stroke({ width: 2.2, color: CLIFF_EDGE, alpha: 0.6 });
+        g.moveTo(ex0, ey0).lineTo(ex1, ey1).stroke({ width: 0.8, color: CLIFF_STRATA_LIGHT, alpha: 0.3 });
+      }
+      // rock-face strata: a few roughly parallel bands within the cell
+      for (let i = 0; i < 3; i++) {
+        const ly = y0 + CELL * (0.22 + i * 0.28) + cliffRng.range(-2.5, 2.5);
+        g.moveTo(x0 + 2, ly + cliffRng.range(-2, 2))
+          .lineTo(x0 + CELL - 2, ly + cliffRng.range(-2, 2))
+          .stroke({ width: 0.8, color: i % 2 === 0 ? CLIFF_STRATA_LIGHT : CLIFF_STRATA_DARK, alpha: 0.28 });
+      }
+    }
+  }
+
+  // Water surface: ripple strokes, a foam highlight along every shore, and
+  // the odd sunlit sparkle — flat two-tone fill was the least finished patch
+  // of ground compared to everything else.
+  const waterRng = new Rng(world.seed ^ 0x5e2a91);
+  for (let cy = 0; cy < GRID_H; cy++) {
+    for (let cx = 0; cx < GRID_W; cx++) {
+      const wv = world.water[cy * GRID_W + cx];
+      if (!wv) continue;
+      const x0 = cx * CELL;
+      const y0 = cy * CELL;
+      // ripples
+      if (waterRng.next() < 0.75) {
+        const px = x0 + waterRng.range(4, CELL - 4);
+        const py = y0 + waterRng.range(4, CELL - 4);
+        const len = waterRng.range(6, 13);
+        const bow = waterRng.range(-2.5, 2.5);
+        g.moveTo(px - len / 2, py)
+          .quadraticCurveTo(px, py + bow, px + len / 2, py)
+          .stroke({ width: 0.6, color: wv === 2 ? 0x4a7a94 : 0x74acb6, alpha: waterRng.range(0.14, 0.3) });
+      }
+      // sparse sunlit sparkle on deep water only
+      if (wv === 2 && waterRng.next() < 0.06) {
+        specular(g, x0 + waterRng.range(6, CELL - 6), y0 + waterRng.range(6, CELL - 6), 0.9, 0.4);
+      }
+      // shore foam: a light lapping line on any edge touching dry ground
+      const dryNeighbor =
+        isOpenGround(world, cx - 1, cy) ||
+        isOpenGround(world, cx + 1, cy) ||
+        isOpenGround(world, cx, cy - 1) ||
+        isOpenGround(world, cx, cy + 1);
+      if (dryNeighbor) {
+        // Explicit per-direction edges (not a formula) — a vertical edge
+        // spans the cell's full HEIGHT at a fixed x, a horizontal edge spans
+        // the full WIDTH at a fixed y; a generalized formula for this
+        // mismatched an axis on the first attempt and collapsed two of the
+        // four edges to zero-length lines.
+        const shoreEdges: [number, number, number, number, number, number][] = [
+          [1, 0, x0 + CELL, y0, x0 + CELL, y0 + CELL],
+          [-1, 0, x0, y0, x0, y0 + CELL],
+          [0, 1, x0, y0 + CELL, x0 + CELL, y0 + CELL],
+          [0, -1, x0, y0, x0 + CELL, y0],
+        ];
+        for (const [dx, dy, ex0, ey0, ex1, ey1] of shoreEdges) {
+          if (!isOpenGround(world, cx + dx, cy + dy)) continue;
+          g.moveTo(ex0, ey0).lineTo(ex1, ey1).stroke({ width: 1.4, color: 0xdcecec, alpha: 0.3 });
+        }
       }
     }
   }
