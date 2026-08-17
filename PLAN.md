@@ -47,8 +47,20 @@ animations, art style, pathfinding, formations, combat — then expand (more map
   world model (blocked/slow/cost flags) was built to absorb this without rework.
 - **BW8 — Art & polish**: soldier sprite animations (walk, attack, death), cohesive graphical
   style, battle effects (arrows, blood, dust), sound.
-- **Later**: more battlefields, battle setup screen, AI commander, multiplayer (lockstep over the
+- **Later**: more battlefields, battle setup screen / army picker, multiplayer (lockstep over the
   deterministic sim).
+
+## Unit roster wishlist (add via unittype.ts — ~20 lines each — when their mechanic lands)
+
+Jonathan wants a deep roster. Core six are in (swordsman, pikeman, archer, crossbowman, knight,
+cavalry). Queue, each tied to the feature that gives it a reason to exist:
+- **Shieldmen / heavy infantry** — with shield-block vs missiles (wall formation combat bonus)
+- **Horse archers** — with kiting behavior (BW6 AI)
+- **Halberdiers / axemen** — with armor-shred or anti-armor mechanics
+- **Two-handers / berserkers** — high damage, low armor glass cannons
+- **Peasant levies** — cheap, fragile, morale-brittle (interesting once army costs exist)
+- **Mounted crossbows, javelin skirmishers, longbowmen vs shortbow split** — ranged variety
+- **Commanders/banner units** — morale auras (pairs with deeper morale system)
 
 ## Architecture rules
 
