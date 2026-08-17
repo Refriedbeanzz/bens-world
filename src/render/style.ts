@@ -119,6 +119,58 @@ export function crescent(
   g.poly(pts).fill({ color, alpha });
 }
 
+/**
+ * Short parallel-ish strokes along a direction — wood grain, cloth weave,
+ * leather grain. angle: direction the grain runs; spread: how far the
+ * strokes fan out perpendicular to it, centered on (cx, cy).
+ */
+export function grainLines(
+  g: Graphics,
+  rng: Rng,
+  cx: number,
+  cy: number,
+  length: number,
+  angle: number,
+  spread: number,
+  count: number,
+  color: number,
+  alpha: number,
+  width = 0.35,
+): void {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  const px = -dy;
+  const py = dx;
+  for (let i = 0; i < count; i++) {
+    const t = count === 1 ? 0 : (i / (count - 1) - 0.5) * spread;
+    const jitter = rng.range(-spread * 0.08, spread * 0.08);
+    const x0 = cx + px * (t + jitter);
+    const y0 = cy + py * (t + jitter);
+    const len = length * rng.range(0.65, 1.15);
+    const off = rng.range(-length * 0.1, length * 0.1);
+    g.moveTo(x0 + dx * off, y0 + dy * off)
+      .lineTo(x0 + dx * (off + len), y0 + dy * (off + len))
+      .stroke({ width, color, alpha });
+  }
+}
+
+/** A drooping fringe of small rings along an arc — mail aventail under a helmet rim. */
+export function fringeDots(
+  g: Graphics,
+  cx: number,
+  cy: number,
+  r: number,
+  angleStart: number,
+  angleEnd: number,
+  count: number,
+  color: number,
+): void {
+  for (let i = 0; i < count; i++) {
+    const a = angleStart + ((angleEnd - angleStart) * i) / Math.max(1, count - 1);
+    g.circle(cx + Math.cos(a) * r, cy + Math.sin(a) * r, 0.28).fill(color);
+  }
+}
+
 /** Rivets around a helmet rim or shield edge. */
 export function rivets(
   g: Graphics,
