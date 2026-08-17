@@ -1,6 +1,6 @@
 export const SOLDIER_RADIUS = 7;
-export const SOLDIER_MAX_SPEED = 95; // px/s — faster than the formation marches, so laggards catch up
-export const SOLDIER_ACCEL = 400;
+export const SOLDIER_MAX_SPEED = 72; // px/s — faster than the formation marches, so laggards catch up
+export const SOLDIER_ACCEL = 300;
 
 export const SOLDIER_HP = 100;
 // Melee ranges: quietly acquire a target inside ENGAGE; once the squad is in

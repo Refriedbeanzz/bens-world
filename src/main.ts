@@ -68,19 +68,51 @@ async function boot(): Promise<void> {
 
   const camera = new Camera(world, stage, app.canvas);
 
-  // --- Bannerlord-style test controls (until BW5's real UI) ---
-  // Click own squad: select. Ctrl+click: add/remove. Drag on ground: box-select.
-  // Click ground: move selection. Click enemy: attack. Shift: charge. Esc: clear.
+  // --- Standard RTS controls (until BW5's real UI) ---
+  // LEFT: select — click a squad, drag a box for several, Ctrl adds, empty ground clears.
+  // RIGHT: order — click ground to move, click an enemy to attack (a longer
+  //        right-drag still pans the camera). Shift: charge. Ctrl+A: select all.
   const selected = new Set<Squad>();
   let dragStart: { x: number; y: number } | null = null;
   let dragNow: { x: number; y: number } | null = null;
   let boxing = false;
+  let rightStart: { x: number; y: number } | null = null;
+
+  const issueOrder = (wx: number, wy: number): void => {
+    if (selected.size === 0) return;
+    const enemy = battle.enemySquadAt(wx, wy);
+    if (enemy) {
+      for (const squad of selected) squad.orderAttack(enemy, battle.world);
+      markerColor = 0xe05050;
+    } else {
+      // Group move: keep the squads' relative spacing around the clicked point.
+      let cx = 0;
+      let cy = 0;
+      for (const squad of selected) {
+        cx += squad.anchorX;
+        cy += squad.anchorY;
+      }
+      cx /= selected.size;
+      cy /= selected.size;
+      for (const squad of selected) {
+        const tx = Math.min(world.widthPx - 40, Math.max(40, wx + squad.anchorX - cx));
+        const ty = Math.min(world.heightPx - 40, Math.max(40, wy + squad.anchorY - cy));
+        squad.orderMove(tx, ty, battle.world);
+      }
+      markerColor = 0xf0e8c0;
+    }
+    markerAge = 0;
+    orderMarker.position.set(wx, wy);
+  };
 
   app.canvas.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    dragStart = { x: e.clientX, y: e.clientY };
-    dragNow = dragStart;
-    boxing = false;
+    if (e.button === 0) {
+      dragStart = { x: e.clientX, y: e.clientY };
+      dragNow = dragStart;
+      boxing = false;
+    } else if (e.button === 2) {
+      rightStart = { x: e.clientX, y: e.clientY };
+    }
   });
 
   window.addEventListener('pointermove', (e) => {
@@ -93,6 +125,16 @@ async function boot(): Promise<void> {
   });
 
   window.addEventListener('pointerup', (e) => {
+    if (e.button === 2 && rightStart) {
+      // Right-click (barely moved) orders; a real drag was a camera pan.
+      const moved = Math.hypot(e.clientX - rightStart.x, e.clientY - rightStart.y);
+      rightStart = null;
+      if (moved <= DRAG_THRESHOLD) {
+        const [wx, wy] = camera.screenToWorld(e.clientX, e.clientY);
+        issueOrder(wx, wy);
+      }
+      return;
+    }
     if (e.button !== 0 || !dragStart) return;
 
     if (boxing && dragNow) {
@@ -122,30 +164,8 @@ async function boot(): Promise<void> {
           selected.clear();
           selected.add(own);
         }
-      } else if (selected.size > 0) {
-        const enemy = battle.enemySquadAt(wx, wy);
-        if (enemy) {
-          for (const squad of selected) squad.orderAttack(enemy, battle.world);
-          markerColor = 0xe05050;
-        } else {
-          // Group move: keep the squads' relative spacing around the clicked point.
-          let cx = 0;
-          let cy = 0;
-          for (const squad of selected) {
-            cx += squad.anchorX;
-            cy += squad.anchorY;
-          }
-          cx /= selected.size;
-          cy /= selected.size;
-          for (const squad of selected) {
-            const tx = Math.min(world.widthPx - 40, Math.max(40, wx + squad.anchorX - cx));
-            const ty = Math.min(world.heightPx - 40, Math.max(40, wy + squad.anchorY - cy));
-            squad.orderMove(tx, ty, battle.world);
-          }
-          markerColor = 0xf0e8c0;
-        }
-        markerAge = 0;
-        orderMarker.position.set(wx, wy);
+      } else {
+        selected.clear();
       }
     }
     dragStart = null;
@@ -160,6 +180,14 @@ async function boot(): Promise<void> {
     }
     if (e.key === 'Shift') {
       for (const squad of selected) squad.startCharge();
+      return;
+    }
+    if (e.ctrlKey && e.key.toLowerCase() === 'a') {
+      e.preventDefault();
+      selected.clear();
+      for (const squad of battle.squads) {
+        if (squad.team === 0 && squad.state === 'steady') selected.add(squad);
+      }
       return;
     }
     const kind = FORMATION_KEYS[e.key];

@@ -11,13 +11,13 @@ import {
 } from './soldier';
 import { CELL, type World } from './world';
 
-const MARCH_SPEED = 60; // how fast the formation anchor slides, px/s
-const TURN_RATE = 2.2; // rad/s — formations wheel around rather than snap-rotating
+const MARCH_SPEED = 42; // how fast the formation anchor slides, px/s
+const TURN_RATE = 1.1; // rad/s — slow, stately wheeling; fast turns scrambled the ranks
 const ARRIVE_RADIUS = 5;
-// Momentum: a formation is a mass of men. ~2.5s to reach march speed, and it
-// brakes early enough to stop on the ordered point. Charging will build on this.
-const MARCH_ACCEL = 26; // px/s²
-const MARCH_DECEL = 40; // px/s²
+// Momentum: a formation is a mass of men. ~2.3s to reach march speed, and it
+// brakes early enough to stop on the ordered point. Charging builds on this.
+const MARCH_ACCEL = 18; // px/s²
+const MARCH_DECEL = 32; // px/s²
 const AVOID_LOOKAHEAD = 70; // how far ahead a soldier scans for an obstacle in his way
 // Morale: at ROUT losses a squad breaks and runs, but can rally and rejoin the
 // fight. At SHATTER losses — or breaking a second time — it flees the battle

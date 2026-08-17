@@ -229,7 +229,7 @@ export class Battle {
         if (d2 <= MELEE_REACH * MELEE_REACH) {
           s.cooldown -= dt;
           if (s.cooldown <= 0) {
-            let dmg = this.rng.int(7, 11);
+            let dmg = this.rng.int(5, 8);
             if (s.chargeBonus) {
               dmg += this.rng.int(12, 18);
               s.chargeBonus = false;
@@ -237,7 +237,7 @@ export class Battle {
             const gang = attackersOn.get(target.id) ?? 1;
             dmg = Math.round(dmg * Math.min(2.5, 1 + 0.3 * Math.max(0, gang - 1)));
             target.hp -= dmg;
-            s.cooldown = this.rng.range(1.4, 2.0);
+            s.cooldown = this.rng.range(1.3, 1.85);
           }
         }
       }
