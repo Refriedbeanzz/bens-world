@@ -188,9 +188,17 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
   const heavy = type.key === 'knight';
   const coat = heavy ? t.cloth : HORSE_BROWN;
 
-  // tail first, behind the body
-  wobblyLine(g, rng, -r * 1.8, 0, -r * 2.25, rng.range(-1.5, 1.5), 1.5, heavy ? t.clothDark : 0x4a3520);
-  wobblyLine(g, rng, -r * 1.8, 0, -r * 2.2, rng.range(-2.5, 2.5), 0.8, heavy ? t.clothDark : 0x3a2a18);
+  // tail: a full flowing shape (not a stray line) with inner strands
+  const tailColor = heavy ? t.clothDark : 0x4a3520;
+  g.poly([
+    -r * 1.8, -r * 0.16,
+    -r * 2.5, -r * 0.32,
+    -r * 2.7, 0,
+    -r * 2.5, r * 0.32,
+    -r * 1.8, r * 0.16,
+  ]).fill(tailColor).stroke({ width: 0.8, color: OUTLINE });
+  wobblyLine(g, rng, -r * 2.0, -r * 0.08, -r * 2.55, -r * 0.14, 0.5, heavy ? t.cloth : 0x3a2a18);
+  wobblyLine(g, rng, -r * 2.0, r * 0.1, -r * 2.55, r * 0.16, 0.5, heavy ? t.cloth : 0x3a2a18);
 
   // one continuous body silhouette
   g.poly(horseOutline(r, rng)).fill(coat).stroke({ width: 1.25, color: OUTLINE });
@@ -206,18 +214,29 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
   g.moveTo(-r * 0.5, -r * 0.5).quadraticCurveTo(-r * 0.3, 0, -r * 0.5, r * 0.5).stroke({ width: 0.5, color: OUTLINE });
   g.moveTo(r * 0.85, -r * 0.4).quadraticCurveTo(r * 0.95, 0, r * 0.85, r * 0.4).stroke({ width: 0.45, color: OUTLINE });
 
-  // head: chanfron plate for knights, blaze stripe for cavalry; eyes + nostrils
+  // head: a real jaw/muzzle wedge (not a blob) tapering to the nose, then
+  // chanfron plate for knights or a blaze stripe for light cavalry
+  g.poly([
+    r * 1.8, -r * 0.24,
+    r * 2.05, -r * 0.22,
+    r * 2.42, -r * 0.1,
+    r * 2.52, 0,
+    r * 2.42, r * 0.1,
+    r * 2.05, r * 0.22,
+    r * 1.8, r * 0.24,
+  ])
+    .fill(heavy ? STEEL : HORSE_BROWN)
+    .stroke({ width: 0.9, color: OUTLINE });
   if (heavy) {
-    g.poly([r * 1.95, -r * 0.2, r * 2.38, -r * 0.1, r * 2.38, r * 0.1, r * 1.95, r * 0.2])
-      .fill(STEEL)
-      .stroke({ width: 0.7, color: STEEL_DARK });
+    wobblyLine(g, rng, r * 1.95, 0, r * 2.45, 0, 0.6, STEEL_DARK); // chanfron ridge
+    g.circle(r * 2.15 + Math.cos(LIGHT_A) * 0.3, Math.sin(LIGHT_A) * 0.3, 0.35).fill({ color: HIGHLIGHT, alpha: 0.5 });
   } else {
-    wobblyLine(g, rng, r * 1.95, 0, r * 2.42, 0, 1, 0xe8dcc8);
+    wobblyLine(g, rng, r * 1.95, 0, r * 2.5, 0, 1.1, 0xe8dcc8); // blaze
   }
-  g.circle(r * 1.93, -r * 0.19, 0.38).fill(OUTLINE);
-  g.circle(r * 1.93, r * 0.19, 0.38).fill(OUTLINE);
-  g.circle(r * 2.4, -r * 0.07, 0.25).fill(SHADOW);
-  g.circle(r * 2.4, r * 0.07, 0.25).fill(SHADOW);
+  g.circle(r * 1.98, -r * 0.17, 0.36).fill(OUTLINE);
+  g.circle(r * 1.98, r * 0.17, 0.36).fill(OUTLINE);
+  g.circle(r * 2.45, -r * 0.06, 0.24).fill(SHADOW);
+  g.circle(r * 2.45, r * 0.06, 0.24).fill(SHADOW);
 
   // mane: short strands falling off the neck's left side
   for (let i = 0; i < 6; i++) {
@@ -250,19 +269,38 @@ function drawHorseBody(g: Graphics, rng: Rng, type: UnitType, team: number): voi
     .stroke({ width: 1, color: OUTLINE });
   g.circle(-r * 0.35, -r * 0.65, 0.6).fill(STEEL);
 
-  // rider at the withers: shoulders, then the helm
-  wobblyEllipse(g, rng, -r * 0.1, 0, r * 0.36, r * 0.5, t.cloth, t.clothDark, 0.9);
-  crescent(g, -r * 0.1, 0, r * 0.42, LIGHT_A, 0.9, r * 0.12, HIGHLIGHT, 0.3);
+  // rider, raised clearly above the horse's back with his own drop shadow so
+  // he reads as a separate figure instead of blending into the coat.
+  const rx = -r * 0.08;
+  g.ellipse(rx + 1.2, r * 0.05, r * 0.34, r * 0.42).fill({ color: 0x000000, alpha: 0.22 }); // seated shadow
+  // cloak/cloth torso — wider than the helm so it silhouettes clearly against the coat
+  g.poly([
+    rx - r * 0.3, -r * 0.4,
+    rx + r * 0.28, -r * 0.34,
+    rx + r * 0.4, 0,
+    rx + r * 0.28, r * 0.34,
+    rx - r * 0.3, r * 0.4,
+    rx - r * 0.42, 0,
+  ])
+    .fill(t.cloth)
+    .stroke({ width: 1, color: OUTLINE });
+  crescent(g, rx, 0, r * 0.4, LIGHT_A, 0.9, r * 0.12, HIGHLIGHT, 0.3);
+  crescent(g, rx, 0, r * 0.4, DARK_A, 0.9, r * 0.1, SHADOW, 0.18);
+  // shoulders peeking past the cloak edge
+  g.circle(rx - r * 0.1, -r * 0.32, r * 0.13).fill(t.clothDark);
+  g.circle(rx - r * 0.1, r * 0.32, r * 0.13).fill(t.clothDark);
   if (heavy) {
-    // flat-topped great helm, breath-slit cross, rim rivets
-    wobblyCircle(g, rng, -r * 0.05, 0, r * 0.36, STEEL, OUTLINE, 1.1);
-    rivets(g, -r * 0.05, 0, r * 0.29, 5, STEEL_DARK);
-    wobblyLine(g, rng, -r * 0.05, -r * 0.26, -r * 0.05, r * 0.26, 0.65, STEEL_DARK);
-    wobblyLine(g, rng, -r * 0.24, 0, r * 0.2, 0, 0.65, STEEL_DARK);
+    // flat-topped great helm, sat higher and larger than before, breath-slit
+    // cross, rim rivets, and a highlight so it pops against the body below
+    wobblyCircle(g, rng, rx, 0, r * 0.4, STEEL, OUTLINE, 1.2);
+    rivets(g, rx, 0, r * 0.32, 6, STEEL_DARK);
+    wobblyLine(g, rng, rx, -r * 0.29, rx, r * 0.29, 0.7, STEEL_DARK);
+    wobblyLine(g, rng, rx - r * 0.27, 0, rx + r * 0.22, 0, 0.7, STEEL_DARK);
+    g.circle(rx + Math.cos(LIGHT_A) * r * 0.2, Math.sin(LIGHT_A) * r * 0.2, r * 0.1).fill({ color: HIGHLIGHT, alpha: 0.55 });
   } else {
-    wobblyCircle(g, rng, -r * 0.05, 0, r * 0.3, STEEL, STEEL_DARK, 0.9);
-    wobblyLine(g, rng, r * 0.1, 0, r * 0.32, 0, 0.85, STEEL); // nasal
-    g.circle(-r * 0.05 + Math.cos(LIGHT_A) * r * 0.12, Math.sin(LIGHT_A) * r * 0.12, r * 0.07).fill({ color: HIGHLIGHT, alpha: 0.5 });
+    wobblyCircle(g, rng, rx, 0, r * 0.33, STEEL, STEEL_DARK, 1);
+    wobblyLine(g, rng, rx + r * 0.14, 0, rx + r * 0.38, 0, 0.9, STEEL); // nasal
+    g.circle(rx + Math.cos(LIGHT_A) * r * 0.14, Math.sin(LIGHT_A) * r * 0.14, r * 0.08).fill({ color: HIGHLIGHT, alpha: 0.55 });
   }
 }
 
