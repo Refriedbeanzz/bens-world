@@ -12,7 +12,6 @@ import {
   MELEE_PURSUE,
   SOLDIER_ACCEL,
   SOLDIER_MAX_SPEED,
-  SOLDIER_RADIUS,
   type Soldier,
 } from './soldier';
 import { UNIT_TYPES, type UnitKey, type UnitType } from './unittype';
@@ -65,23 +64,6 @@ function hash01(n: number, salt: number): number {
   let t = (Math.imul(n, 374761393) + Math.imul(salt, 668265263)) >>> 0;
   t = Math.imul(t ^ (t >>> 13), 1274126177) >>> 0;
   return ((t ^ (t >>> 16)) >>> 0) / 4294967296;
-}
-
-// True when the straight segment crosses nothing but open ground. Forest counts as
-// "not clear" — not because it's impassable, but so the decision to cut through vs
-// go around is made by the cost-aware flow field, never by beelining.
-function losClear(world: World, x0: number, y0: number, x1: number, y1: number): boolean {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const dist = Math.hypot(dx, dy);
-  const steps = Math.ceil(dist / (CELL / 2));
-  for (let i = 1; i <= steps; i++) {
-    const t = i / steps;
-    const cx = Math.floor((x0 + dx * t) / CELL);
-    const cy = Math.floor((y0 + dy * t) / CELL);
-    if (!world.isOpen(cx, cy)) return false;
-  }
-  return true;
 }
 
 /** True when the straight segment crosses no hard wall (rocks). Trees don't count — they're walkable. */
@@ -480,7 +462,7 @@ export class Squad {
     // flow field around whatever is in the way.
     let dirX = dx / dist;
     let dirY = dy / dist;
-    if (!losClear(world, this.anchorX, this.anchorY, this.orderX, this.orderY)) {
+    if (!losPassable(world, this.anchorX, this.anchorY, this.orderX, this.orderY)) {
       const flowDir = this.flow?.direction(this.anchorX, this.anchorY);
       if (flowDir) {
         dirX = flowDir[0];
@@ -668,7 +650,9 @@ export class Squad {
     let conflicted = false;
 
     for (const o of world.obstacles) {
-      const clearance = o.radius + SOLDIER_RADIUS + 3;
+      // Trees are walked through, not around — only rocks get dodged, and tightly.
+      if (o.kind !== 'rock') continue;
+      const clearance = o.radius + s.radius + 1;
       const ox = o.x - s.x;
       const oy = o.y - s.y;
       const proj = ox * dirX + oy * dirY; // distance along the path to the obstacle's closest approach

@@ -110,7 +110,10 @@ export class World {
         const centerY = cy * CELL + CELL / 2;
         const dx = centerX - o.x;
         const dy = centerY - o.y;
-        if (dx * dx + dy * dy <= (o.radius + CELL * 0.4) ** 2) {
+        // Rocks get a tight blocked halo (routing hugs them close); tree cells
+        // keep a generous slow-marking for future terrain mechanics.
+        const margin = o.kind === 'rock' ? CELL * 0.15 : CELL * 0.4;
+        if (dx * dx + dy * dy <= (o.radius + margin) ** 2) {
           if (o.kind === 'rock') this.blocked[cy * GRID_W + cx] = 1;
           else this.slow[cy * GRID_W + cx] = 1;
         }
