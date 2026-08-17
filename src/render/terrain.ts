@@ -145,21 +145,39 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   const rng = new Rng(world.seed ^ 0x9e3779b9);
   const grassNoise = makeNoise(rng, 12, 8);
   const dirtNoise = makeNoise(rng, 9, 6);
+  // A second, higher-frequency octave layered under the coarse noise — the
+  // difference between a painted wash and a single flat gradient.
+  const fineNoise = makeNoise(rng, 26, 17);
   const speckle = new Rng(world.seed ^ 0x51ab3c);
   const pal = PALETTES[world.spec.biome] ?? PALETTES.meadow!;
 
-  const heightOf = (cx: number, cy: number): number =>
-    world.height[
-      Math.min(GRID_H - 1, Math.max(0, cy)) * GRID_W + Math.min(GRID_W - 1, Math.max(0, cx))
-    ]!;
+  // Shared field every brush/scatter layer reads from, so grass strokes,
+  // grit, and tufts all lean the same way the ground under them leans —
+  // dirt-toned over a dirt patch, grass-toned over lush ground — instead of
+  // each layer rolling its own independent, uncorrelated color.
+  const dirtLeanAt = (px: number, py: number): number => {
+    const u = px / world.widthPx;
+    const v = py / world.heightPx;
+    return Math.min(1, Math.max(0, (dirtNoise(u, v) - 0.52) / 0.32));
+  };
 
   const g = new Graphics();
-  for (let cy = 0; cy < GRID_H; cy++) {
-    for (let cx = 0; cx < GRID_W; cx++) {
-      const u = cx / GRID_W;
-      const v = cy / GRID_H;
-      const h = heightOf(cx, cy);
-      const sun = Math.min(1.22, Math.max(0.78, 1 + (heightOf(cx - 1, cy - 1) - heightOf(cx + 1, cy + 1)) * 2.2));
+  // Base wash at half-cell resolution with continuous (not per-cell-snapped)
+  // sampling — colors drift smoothly across a tile instead of stepping at
+  // cell boundaries, the biggest single fix for the layers reading as blended.
+  const SUB = CELL / 2;
+  for (let py = SUB / 2; py < world.heightPx; py += SUB) {
+    for (let px = SUB / 2; px < world.widthPx; px += SUB) {
+      const cx = Math.floor(px / CELL);
+      const cy = Math.floor(py / CELL);
+      const u = px / world.widthPx;
+      const v = py / world.heightPx;
+      const h = world.heightAt(px, py);
+      const d = 14;
+      const sun = Math.min(
+        1.22,
+        Math.max(0.78, 1 + (world.heightAt(px - d, py - d) - world.heightAt(px + d, py + d)) * 2.2),
+      );
       const bright = (0.82 + h * 0.36) * sun;
 
       let color: number;
@@ -172,61 +190,98 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
         color = shade(lerpColor(CLIFF_DARK, CLIFF_COLOR, speckle.next()), 0.75 + h * 0.45);
       } else {
         color = lerpColor(pal.dark, pal.light, grassNoise(u, v));
-        const d = dirtNoise(u, v);
-        if (d > 0.6) color = lerpColor(color, pal.dirt, Math.min(1, (d - 0.6) / 0.22) * 0.85);
-        color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.11);
+        // fine octave: subtle mottling within a coarse patch, not a hard step
+        color = lerpColor(color, pal.light, (fineNoise(u, v) - 0.5) * 0.16);
+        const dirtT = dirtLeanAt(px, py);
+        if (dirtT > 0) color = lerpColor(color, pal.dirt, dirtT * 0.85);
+        color = lerpColor(color, speckle.next() > 0.5 ? pal.light : pal.dark, 0.1);
         color = shade(color, bright * 0.86);
       }
-      g.rect(cx * CELL, cy * CELL, CELL, CELL).fill(color);
+      g.rect(px - SUB / 2, py - SUB / 2, SUB, SUB).fill(color);
     }
   }
 
-  // Grass-blade brush pass: short angled strokes over open ground — a
-  // painted dry-brush texture instead of flat noise-colored cells.
+  // Grass-blade brush pass: short angled strokes over open ground, tinted
+  // toward dirt or grass by the SAME field the base wash reads — a stroke
+  // drawn over a dirt patch reads as a dry/worn blade, not a random fleck.
   const brush = new Rng(world.seed ^ 0x3d17c2);
-  const brushCount = Math.round(GRID_W * GRID_H * 3.2);
+  const brushCount = Math.round(GRID_W * GRID_H * 4.4);
   for (let i = 0; i < brushCount; i++) {
     const px = brush.range(0, world.widthPx);
     const py = brush.range(0, world.heightPx);
     const cx = Math.floor(px / CELL);
     const cy = Math.floor(py / CELL);
     if (!isOpenGround(world, cx, cy)) continue;
-    const a = brush.range(-1.9, -1.2);
-    const len = brush.range(2.5, 5.5);
+    const dirtT = dirtLeanAt(px, py);
+    const a = brush.range(-1.95, -1.15);
+    const len = brush.range(2.2, 6) * (1 - dirtT * 0.4); // shorter, sparser blades on drier ground
     const light = brush.next() > 0.5;
+    const tone = lerpColor(light ? pal.light : pal.dark, pal.dirt, dirtT * 0.7);
     g.moveTo(px, py)
       .lineTo(px + Math.cos(a) * len, py + Math.sin(a) * len)
-      .stroke({ width: 0.6, color: light ? pal.light : pal.dark, alpha: brush.range(0.1, 0.22) });
+      .stroke({ width: 0.6, color: tone, alpha: brush.range(0.1, 0.22) * (1 - dirtT * 0.3) });
   }
 
   // Fine grit pass: scattered pebbles, dirt flecks, and worn patches at a
-  // sub-cell scale so the ground reads rough up close, not like flat tiles.
+  // sub-cell scale — denser and darker where the ground already leans dirt,
+  // sparse over lush grass, so it reads as the SAME ground drying out rather
+  // than an unrelated overlay.
   const grit = new Rng(world.seed ^ 0x6a12f3);
-  const gritCount = Math.round(GRID_W * GRID_H * 2.4);
+  const gritCount = Math.round(GRID_W * GRID_H * 3.2);
   for (let i = 0; i < gritCount; i++) {
     const px = grit.range(0, world.widthPx);
     const py = grit.range(0, world.heightPx);
     const cx = Math.floor(px / CELL);
     const cy = Math.floor(py / CELL);
     if (world.water[cy * GRID_W + cx] || world.cliff[cy * GRID_W + cx]) continue;
-    const dark = grit.next() > 0.35;
-    const size = grit.range(0.5, 1.8);
+    const dirtT = dirtLeanAt(px, py);
+    if (dirtT < 0.15 && grit.next() > 0.55) continue; // thin out over lush ground
+    const dark = grit.next() > 0.35 - dirtT * 0.25;
+    const size = grit.range(0.5, 1.8) * (1 + dirtT * 0.4);
     g.circle(px, py, size).fill({
       color: dark ? pal.dirt : pal.light,
-      alpha: grit.range(0.08, dark ? 0.22 : 0.14),
+      alpha: grit.range(0.08, dark ? 0.24 : 0.14) * (0.7 + dirtT * 0.5),
     });
   }
 
-  // Grass tufts: small multi-blade clumps, density set by biome.
+  // Soft mottle blotches: broad, very-low-alpha irregular patches of grass
+  // tone drifting warmer/cooler — the last bit of "painted" depth that pure
+  // noise-and-scatter can't give, closer to a glaze than a texture.
+  const mottle = new Rng(world.seed ^ 0x2f9a63);
+  const mottleCount = Math.round(GRID_W * GRID_H * 0.06);
+  for (let i = 0; i < mottleCount; i++) {
+    const px = mottle.range(0, world.widthPx);
+    const py = mottle.range(0, world.heightPx);
+    const cx = Math.floor(px / CELL);
+    const cy = Math.floor(py / CELL);
+    if (!isOpenGround(world, cx, cy)) continue;
+    const warm = mottle.next() > 0.5;
+    const r = mottle.range(30, 70);
+    const n = 8;
+    const pts: number[] = [];
+    for (let j = 0; j < n; j++) {
+      const a = (j / n) * Math.PI * 2;
+      pts.push(px + Math.cos(a) * r * mottle.range(0.6, 1.15), py + Math.sin(a) * r * mottle.range(0.6, 1.15));
+    }
+    g.poly(pts).fill({ color: warm ? pal.dirt : pal.light, alpha: 0.04 });
+  }
+
+  // Grass tufts: small multi-blade clumps, density set by biome and thinned
+  // over dirt-leaning ground (tufts don't grow on a worn patch) — the same
+  // field driving every other layer, so patches read as ONE dry spot instead
+  // of grass, dirt-tinted grit, and tufts all disagreeing about it.
   const tuftRng = new Rng(world.seed ^ 0x1e5f0a);
-  const tuftCount = Math.round(GRID_W * GRID_H * pal.grassDensity);
+  const tuftCount = Math.round(GRID_W * GRID_H * pal.grassDensity * 1.25);
   for (let i = 0; i < tuftCount; i++) {
     const px = tuftRng.range(0, world.widthPx);
     const py = tuftRng.range(0, world.heightPx);
     const cx = Math.floor(px / CELL);
     const cy = Math.floor(py / CELL);
     if (!isOpenGround(world, cx, cy)) continue;
-    drawGrassTuft(g, tuftRng, px, py, tuftRng.range(0.7, 1.3), pal.light, pal.dark);
+    const dirtT = dirtLeanAt(px, py);
+    if (tuftRng.next() < dirtT * 0.8) continue;
+    const tone = lerpColor(pal.light, pal.dirt, dirtT * 0.5);
+    drawGrassTuft(g, tuftRng, px, py, tuftRng.range(0.7, 1.3) * (1 - dirtT * 0.3), tone, pal.dark);
   }
 
   // Reeds: cluster along the boundary between dry ground and water.
@@ -270,8 +325,10 @@ export function buildTerrainSprite(renderer: Renderer, world: World): Sprite {
   // hachures thicken and stack toward a hilltop, tracing its contour lines
   // with one lighter "sunlit" stroke nearest the crest.
   const hachRng = new Rng(world.seed ^ 0x4c9e21);
-  const HACH_INK = 0x362c1c;
-  const HACH_LIGHT = 0xcfc088;
+  // Tinted toward the biome's own dirt tone, not a fixed foreign ink color —
+  // reads as part of the same painted ground instead of a decal on top of it.
+  const HACH_INK = lerpColor(0x362c1c, pal.dirt, 0.32);
+  const HACH_LIGHT = lerpColor(0xcfc088, pal.light, 0.3);
   const HACH_SPACING = 26;
   for (let py = HACH_SPACING / 2; py < world.heightPx; py += HACH_SPACING) {
     for (let px = HACH_SPACING / 2; px < world.widthPx; px += HACH_SPACING) {
