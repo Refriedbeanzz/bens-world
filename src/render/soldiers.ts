@@ -1,7 +1,7 @@
 import { Container, Graphics, Sprite, Texture, type Renderer } from 'pixi.js';
-import type { Battle } from '../sim/battle';
+import type { Battle, DeathEvent } from '../sim/battle';
 import { Rng } from '../sim/rng';
-import type { UnitKey, UnitType } from '../sim/unittype';
+import { UNIT_TYPES, type UnitKey, type UnitType } from '../sim/unittype';
 import type { GoreLayer } from './gore';
 import {
   crescent,
@@ -700,14 +700,37 @@ interface Rig {
   hl: Sprite;
   hr: Sprite;
   spec: RigSpec;
+  unit: UnitKey;
   radius: number;
   mounted: boolean;
   curRot: number;
   walkPhase: number;
+  idlePhase: number;
   swingT: number;
   lastCooldown: number;
   lastReload: number;
   lastHp: number;
+}
+
+// A soldier's death is a brief stagger-and-fall, not an instant pop: he
+// lurches from the hit, topples to a random sprawl angle, and only THEN
+// becomes the static gore corpse — self-contained from the death event
+// alone since the sim's Soldier object is already gone by the time we see it.
+const DEATH_FALL_DURATION = 0.4;
+
+interface DyingAnim {
+  root: Container;
+  t: number;
+  startFacing: number;
+  restFacing: number;
+  lurchX: number;
+  lurchY: number;
+  x: number;
+  y: number;
+  team: number;
+  unit: UnitKey;
+  variant: number;
+  parts: PartSet;
 }
 
 function mkSprite(part: Part): Sprite {
@@ -720,6 +743,7 @@ export class SoldierLayer {
   readonly container = new Container();
   private rigs = new Map<number, Rig>();
   private parts = new Map<string, PartSet>();
+  private dyingAnims: DyingAnim[] = [];
   private time = 0;
 
   constructor(renderer: Renderer, battle: Battle) {
@@ -743,10 +767,12 @@ export class SoldierLayer {
           hl,
           hr,
           spec,
+          unit: squad.unitType.key,
           radius: squad.unitType.radius,
           mounted: squad.unitType.mounted,
           curRot: s.facing,
           walkPhase: (s.id % 7) * 0.9,
+          idlePhase: (s.id % 11) * 0.7,
           swingT: 99,
           lastCooldown: s.cooldown,
           lastReload: s.reload,
@@ -774,7 +800,10 @@ export class SoldierLayer {
   update(battle: Battle, alpha: number, frameDt: number, gore: GoreLayer | null): void {
     this.time += frameDt;
     for (const squad of battle.squads) {
+      const fleeing = squad.state !== 'steady';
       const fade = squad.state === 'steady' ? 1 : squad.state === 'routing' ? 0.78 : 0.5;
+      const charging = squad.charging;
+      const braced = squad.formation === 'wall';
       for (const s of squad.soldiers) {
         const rig = this.rigs.get(s.id);
         if (!rig) continue;
@@ -795,21 +824,35 @@ export class SoldierLayer {
 
         // Gait, scaled by real speed. Footmen bob laterally with counter-swinging
         // arms; horses surge forward-and-back in a low, smooth gallop rhythm.
+        // A routed man's stride is longer and more frantic; a charging man
+        // leans into the run.
         const speed = Math.hypot(s.vx, s.vy);
+        const panicMult = fleeing ? 1.35 : 1;
         let armSwing: number;
+        let stride: number;
         if (rig.mounted) {
-          const stride = Math.min(1, speed / 110);
-          rig.walkPhase += frameDt * (1.6 + speed * 0.045);
-          rig.body.position.x = Math.sin(rig.walkPhase) * 0.6 * stride;
+          stride = Math.min(1, speed / 110);
+          rig.walkPhase += frameDt * (1.6 + speed * 0.045) * panicMult;
+          rig.body.position.x = Math.sin(rig.walkPhase) * 0.6 * stride + (charging ? 0.9 : 0);
           rig.body.position.y = Math.cos(rig.walkPhase * 2) * 0.15 * stride;
           armSwing = 0;
         } else {
-          const stride = Math.min(1, speed / 55);
-          rig.walkPhase += frameDt * (2.2 + speed * 0.09);
-          const bob = Math.sin(rig.walkPhase) * stride;
+          stride = Math.min(1, speed / 55);
+          rig.walkPhase += frameDt * (2.2 + speed * 0.09) * panicMult;
+          const bob = Math.sin(rig.walkPhase) * stride * panicMult;
           rig.body.position.y = bob * 0.5;
+          rig.body.position.x = charging ? 1.1 : 0;
           armSwing = bob * 0.14;
         }
+
+        // Idle: when nearly stationary, a slow weight-shift sway instead of a
+        // frozen mannequin — breathing, resettling a grip, watching the field.
+        rig.idlePhase += frameDt * 1.05;
+        const idleAmount = 1 - stride;
+        const idleSway = Math.sin(rig.idlePhase) * idleAmount;
+        rig.body.rotation = idleSway * (rig.mounted ? 0.018 : 0.032);
+        armSwing += idleSway * 0.045;
+        if (rig.mounted) rig.body.position.y += Math.sin(rig.idlePhase * 0.6) * 0.18 * idleAmount;
 
         // Attack detection: the sim resets cooldown upward on a swing, reload on a shot.
         if (s.cooldown > rig.lastCooldown + 0.35) rig.swingT = 0;
@@ -818,17 +861,28 @@ export class SoldierLayer {
         rig.lastReload = s.reload;
         rig.swingT += frameDt;
 
-        this.poseHands(rig, armSwing);
+        this.poseHands(rig, armSwing, charging, braced && rig.unit === 'swordsman');
       }
     }
+
+    this.updateDeaths(frameDt, gore);
   }
 
-  private poseHands(rig: Rig, armSwing: number): void {
+  private poseHands(rig: Rig, armSwing: number, charging: boolean, braced: boolean): void {
     const t = rig.swingT;
     const { hl, hr, spec } = rig;
     let hrRot = armSwing;
     let hrX = 0;
     let hlRot = -armSwing * 0.7;
+    let hlX = 0;
+    let hlY = 0;
+
+    // A charging weapon levels forward, ready for impact, instead of hanging
+    // loose at the side.
+    if (charging && t >= 0.55) {
+      if (spec.anim === 'thrust' || spec.anim === 'lance') hrX += 1.2;
+      else if (spec.anim === 'swing') hrRot += -0.18;
+    }
 
     if (t < 0.55) {
       // Attack animation: wind-up, strike, recover — each phase eased so the
@@ -846,17 +900,27 @@ export class SoldierLayer {
           break;
         case 'thrust':
         case 'lance':
-          hrX = strike(-3.2, 5.5);
+          hrX += strike(-3.2, 5.5);
           break;
         case 'loose':
-          hrX = strike(-3.5, 1.5);
+          hrX += strike(-3.5, 1.5);
           hlRot += strike(0, -0.12);
           break;
       }
     }
+
+    // Shield wall: the swordsman's shield hand locks forward and square to
+    // the front instead of relaxed at the hip — braced ranks holding the line.
+    if (braced) {
+      hlRot = -0.62 + hlRot * 0.15;
+      hlX = 1.6;
+      hlY = -1.2;
+    }
+
     hr.rotation = hrRot;
     hr.position.set(spec.hr[0] + hrX, spec.hr[1]);
     hl.rotation = hlRot;
+    hl.position.set(spec.hl[0] + hlX, spec.hl[1] + hlY);
   }
 
   removeById(id: number): void {
@@ -864,6 +928,67 @@ export class SoldierLayer {
     if (rig) {
       rig.root.destroy({ children: true });
       this.rigs.delete(id);
+    }
+  }
+
+  /** Kick off a death: stagger from the hit, then topple to a sprawl (gore.addDeath fires when it settles). */
+  playDeath(renderer: Renderer, death: DeathEvent): void {
+    const variant = hashVariant(death.id);
+    const unitType = UNIT_TYPES[death.unit];
+    const parts = this.partsFor(renderer, death.team, unitType, variant);
+    const spec = rigSpec(unitType);
+    const root = new Container();
+    const body = mkSprite(parts.body);
+    const hl = mkSprite(parts.handL);
+    const hr = mkSprite(parts.handR);
+    hl.position.set(spec.hl[0], spec.hl[1]);
+    hr.position.set(spec.hr[0], spec.hr[1]);
+    root.addChild(body, hl, hr);
+    root.position.set(death.x, death.y);
+    root.rotation = death.facing;
+    this.container.addChild(root);
+
+    const rng = new Rng(death.id * 7919);
+    this.dyingAnims.push({
+      root,
+      t: 0,
+      startFacing: death.facing,
+      restFacing: death.facing + rng.range(-2.6, 2.6),
+      lurchX: Math.cos(death.facing) * rng.range(2, 5),
+      lurchY: Math.sin(death.facing) * rng.range(2, 5),
+      x: death.x,
+      y: death.y,
+      team: death.team,
+      unit: death.unit,
+      variant,
+      parts,
+    });
+  }
+
+  private updateDeaths(frameDt: number, gore: GoreLayer | null): void {
+    for (let i = this.dyingAnims.length - 1; i >= 0; i--) {
+      const d = this.dyingAnims[i]!;
+      d.t += frameDt;
+      const k = Math.min(1, d.t / DEATH_FALL_DURATION);
+      // Quick lurch from the impact, then a heavier topple into the sprawl —
+      // two eased phases feel like a real fall, not a linear tip-over.
+      const lurchK = Math.min(1, k / 0.35) ** 0.5;
+      const fallK = k < 0.3 ? 0 : ((k - 0.3) / 0.7) ** 1.6;
+      d.root.position.set(d.x + d.lurchX * lurchK, d.y + d.lurchY * lurchK);
+      let rotDiff = d.restFacing - d.startFacing;
+      while (rotDiff > Math.PI) rotDiff -= Math.PI * 2;
+      while (rotDiff < -Math.PI) rotDiff += Math.PI * 2;
+      d.root.rotation = d.startFacing + rotDiff * fallK;
+      d.root.scale.set(1, 1 - fallK * 0.35);
+      d.root.alpha = 1 - fallK * 0.15;
+      if (k >= 1) {
+        d.root.destroy({ children: true });
+        this.dyingAnims.splice(i, 1);
+        // Corpse spawns exactly where the fall animation settled (lurched
+        // position), not the original hit point — otherwise it visibly pops
+        // a few pixels sideways the instant the animation ends.
+        gore?.addDeath(d.x + d.lurchX, d.y + d.lurchY, d.restFacing, d.parts);
+      }
     }
   }
 }

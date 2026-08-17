@@ -7,7 +7,7 @@ import type { Squad, Stance } from './sim/squad';
 import { Camera } from './render/camera';
 import { GoreLayer } from './render/gore';
 import { buildGrainTexture } from './render/grain';
-import { drawProjectiles, hashVariant, SoldierLayer } from './render/soldiers';
+import { drawProjectiles, SoldierLayer } from './render/soldiers';
 import { buildTerrainSprite, buildObstacleLayer } from './render/terrain';
 
 const MAP_SEED = 20260816;
@@ -451,14 +451,8 @@ async function boot(): Promise<void> {
 
       for (const death of battle.consumeDeaths()) {
         soldierLayer.removeById(death.id);
-        if (!death.escaped) {
-          gore.addDeath(
-            death.x,
-            death.y,
-            death.facing,
-            soldierLayer.getParts(death.team, death.unit, hashVariant(death.id)),
-          );
-        }
+        // Escaped (routed off-map) soldiers just leave; killed ones stagger and fall.
+        if (!death.escaped) soldierLayer.playDeath(app.renderer, death);
       }
 
       soldierLayer.update(battle, alpha, frameDt, gore);
