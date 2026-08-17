@@ -1,6 +1,6 @@
 import { Graphics } from 'pixi.js';
 import { Rng } from '../sim/rng';
-import { crescent, grime, OUTLINE, paintedShade, specular, wobblyCircle, wobblyLine } from './style';
+import { grime, OUTLINE, paintedShade, specular, wobblyCircle, wobblyLine } from './style';
 import type { Biome } from '../sim/world';
 
 // A procedural asset LIBRARY: named species with genuinely different
@@ -119,15 +119,22 @@ export function drawTree(g: Graphics, rng: Rng, x: number, y: number, r: number,
   if (species.shape === 'conifer' || species.shape === 'narrowConifer') {
     const narrow = species.shape === 'narrowConifer';
     const color = lerpColor(species.dark, species.light, 0.5 + hue);
-    conifer(g, rng, x, y, narrow ? r * 0.8 : r, color, narrow ? 4 : 3, narrow ? 0.7 : 0.85);
-    paintedShade(g, x, y - r * 0.15, r * 0.95, LIGHT_A, DARK_A, 0xcfe0b0, 0x0a0f06);
+    const coniferR = narrow ? r * 0.8 : r;
+    conifer(g, rng, x, y, coniferR, color, narrow ? 4 : 3, narrow ? 0.7 : 0.85);
+    // Radius kept well inside the star's concave floor (spike points dip to
+    // 70% of coniferR) so the shading never pokes out past the needles into
+    // open air — that gap is exactly what read as a pale "aura" before.
+    paintedShade(g, x, y - r * 0.1, coniferR * 0.62, LIGHT_A, DARK_A, 0xcfe0b0, 0x0a0f06);
     return;
   }
 
   if (species.shape === 'weeping') {
     // Asymmetric main mass, plus drooping tendrils trailing outward/down.
     const base = lerpColor(species.dark, species.light, 0.5 + hue);
-    wobblyCircle(g, rng, x - r * 0.1, y - r * 0.15, r * 0.75, base, OUTLINE, 0.9);
+    const massX = x - r * 0.1;
+    const massY = y - r * 0.15;
+    const massR = r * 0.75;
+    wobblyCircle(g, rng, massX, massY, massR, base, OUTLINE, 0.9);
     const tendrils = rng.int(7, 10);
     for (let i = 0; i < tendrils; i++) {
       const a = (i / tendrils) * Math.PI * 2;
@@ -142,12 +149,18 @@ export function drawTree(g: Graphics, rng: Rng, x: number, y: number, r: number,
         alpha: 0.75,
       });
     }
-    paintedShade(g, x, y, r * 0.85, LIGHT_A, DARK_A, 0xcfe0b0, 0x0a0f06);
+    // Shaded on the actual round mass only (tendrils are thin strokes, not a
+    // filled area a circular shade could safely wrap).
+    paintedShade(g, massX, massY, massR * 0.75, LIGHT_A, DARK_A, 0xcfe0b0, 0x0a0f06);
     return;
   }
 
   // 'round' and 'oval': multi-lobe canopy, oval species sparser/taller with
   // more visible gaps (thin trunk peeking between lobes) and a lighter wash.
+  // Shading is applied PER LOBE (each already knows its own true center and
+  // radius) rather than one big wrap over the whole cluster — a multi-blob
+  // silhouette has no single circle that safely bounds it, and wrapping one
+  // anyway was exactly what leaked a pale halo into the gaps between lobes.
   const oval = species.shape === 'oval';
   const lobes = oval ? (tier === 'small' ? 2 : 3) : tier === 'small' ? 2 : tier === 'medium' ? 3 : 5;
   for (let i = 0; i < lobes; i++) {
@@ -155,19 +168,11 @@ export function drawTree(g: Graphics, rng: Rng, x: number, y: number, r: number,
     const d = i === 0 ? 0 : r * rng.range(0.25, 0.42) * (oval ? 1.15 : 1);
     const lr = r * (i === 0 ? rng.range(0.7, 0.9) : rng.range(0.42, 0.62)) * (oval ? 0.9 : 1);
     const lobeHue = hue + rng.range(-0.05, 0.05);
-    wobblyCircle(
-      g,
-      rng,
-      x + Math.cos(a) * d,
-      y + Math.sin(a) * d * (oval ? 1.3 : 1),
-      lr,
-      lerpColor(species.dark, species.light, 0.5 + lobeHue),
-      OUTLINE,
-      0.9,
-    );
+    const lx = x + Math.cos(a) * d;
+    const ly = y + Math.sin(a) * d * (oval ? 1.3 : 1);
+    wobblyCircle(g, rng, lx, ly, lr, lerpColor(species.dark, species.light, 0.5 + lobeHue), OUTLINE, 0.9);
+    paintedShade(g, lx, ly, lr * 0.85, LIGHT_A, DARK_A, 0xd8ecb0, 0x0a0f06);
   }
-  paintedShade(g, x, y, r * 0.95, LIGHT_A, DARK_A, 0xd8ecb0, 0x0a0f06);
-  crescent(g, x, y, r * 0.9, LIGHT_A, 1.0, r * 0.3, lerpColor(species.dark, species.light, 0.5), 0.12);
   if (tier !== 'small' && rng.next() < 0.55) {
     grime(g, rng, x, y, r * 0.85, 3, [0x6a5030, 0x8a7038]);
   }
@@ -225,8 +230,12 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
         );
         g.poly(pts).fill(shade(species.base, 1 - i * 0.08)).stroke({ width: 1, color: species.dark });
         wobblyLine(g, rng, x - w * 0.8, y + oy - h * 0.15, x + w * 0.8, y + oy - h * 0.1, 0.5, species.dark);
+        // Shading radius bounded by the plate's SHORT axis (height, not
+        // width) — plates are far shorter than they are wide, and a circular
+        // wrap sized off the width overshot badly, floating a pale halo
+        // above/below the actual slab.
+        paintedShade(g, x, y + oy, h * 0.85, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       }
-      paintedShade(g, x, y, r * 0.95, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       break;
     }
     case 'rubble': {
@@ -240,14 +249,17 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
         const py = y + Math.sin(a) * d;
         const pts = boulderSilhouette(rng, px, py, rr, rng.int(5, 6), [0.7, 1.05]);
         g.poly(pts).fill(species.base).stroke({ width: 0.7, color: species.dark });
-        paintedShade(g, px, py, rr * 0.9, LIGHT_A, DARK_A, 0xe8e4d8, 0x000000);
+        // Kept safely inside this piece's own jittered silhouette (min 0.7rr).
+        paintedShade(g, px, py, rr * 0.62, LIGHT_A, DARK_A, 0xe8e4d8, 0x000000);
       }
       break;
     }
     case 'faceted': {
       const pts = boulderSilhouette(rng, x, y, r, rng.int(6, 8), [0.72, 1.1]);
       g.poly(pts).fill(species.base).stroke({ width: 1.2, color: species.dark });
-      paintedShade(g, x, y, r * 0.95, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
+      // Kept inside the silhouette's minimum jitter (0.72r) so the shading
+      // never pokes past the actual jagged edge — that gap was the "aura."
+      paintedShade(g, x, y, r * 0.62, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       const cracks = rng.int(3, 5);
       for (let i = 0; i < cracks; i++) {
         const a0 = rng.range(0, Math.PI * 2);
@@ -261,7 +273,7 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
     case 'pitted': {
       const pts = boulderSilhouette(rng, x, y, r, rng.int(7, 9), [0.72, 1.0]);
       g.poly(pts).fill(species.base).stroke({ width: 1.1, color: species.dark });
-      paintedShade(g, x, y, r * 0.95, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
+      paintedShade(g, x, y, r * 0.62, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       for (let i = 0; i < rng.int(5, 9); i++) {
         const a = rng.range(0, Math.PI * 2);
         const d = r * rng.range(0, 0.65);
@@ -276,7 +288,7 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
       // boulder — the classic irregular wobbly mass.
       const pts = boulderSilhouette(rng, x, y, r, rng.int(7, 10), [0.62, 1.08]);
       g.poly(pts).fill(species.base).stroke({ width: 1.2, color: species.dark });
-      paintedShade(g, x, y, r * 0.95, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
+      paintedShade(g, x, y, r * 0.55, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       const cracks = rng.int(2, 3);
       for (let i = 0; i < cracks; i++) {
         const a0 = rng.range(0, Math.PI * 2);
@@ -299,7 +311,7 @@ export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number,
     ]);
   }
   if (rng.next() < 0.3) {
-    specular(g, x + Math.cos(LIGHT_A) * r * 0.35, y + Math.sin(LIGHT_A) * r * 0.35, r * 0.14, 0.4);
+    specular(g, x + Math.cos(LIGHT_A) * r * 0.3, y + Math.sin(LIGHT_A) * r * 0.3, r * 0.12, 0.4);
   }
   if (species.shape !== 'rubble' && r > 16 && rng.next() < 0.55) {
     const n = rng.int(1, 3);
