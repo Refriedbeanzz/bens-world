@@ -39,7 +39,7 @@ export class SpatialGrid {
     let best: Soldier | null = null;
     let bestD2 = radius * radius;
     this.forEachNear(x, y, radius, (s) => {
-      if (s.team === myTeam || s.hp <= 0) return;
+      if (s.team === myTeam || s.hp <= 0 || s.escaped) return;
       const dx = s.x - x;
       const dy = s.y - y;
       const d2 = dx * dx + dy * dy;

@@ -45,7 +45,8 @@ export class SoldierLayer {
   /** alpha = progress between the last two sim ticks, for smooth motion at any frame rate. */
   update(battle: Battle, alpha: number): void {
     for (const squad of battle.squads) {
-      const routing = squad.state === 'routing';
+      // Broken men fade; men leaving the field for good fade harder.
+      const alpha_ = squad.state === 'steady' ? 1 : squad.state === 'routing' ? 0.75 : 0.45;
       for (const s of squad.soldiers) {
         const sprite = this.sprites.get(s.id);
         if (!sprite) continue;
@@ -54,7 +55,7 @@ export class SoldierLayer {
           s.prevY + (s.y - s.prevY) * alpha,
         );
         sprite.rotation = s.facing;
-        sprite.alpha = routing ? 0.7 : 1;
+        sprite.alpha = alpha_;
       }
     }
   }

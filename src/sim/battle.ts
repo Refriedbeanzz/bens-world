@@ -15,6 +15,9 @@ export const PLAYER_TEAM = 0;
 
 const AI_THINK_INTERVAL = 2; // seconds between enemy decisions
 const AI_AGGRO_RANGE = 550;
+// A routed squad rallies after this much continuous breathing room.
+const RALLY_ENEMY_DISTANCE = 380;
+const RALLY_TIME = 4;
 
 export interface DeathEvent {
   id: number;
@@ -117,6 +120,29 @@ export class Battle {
     this.separateSoldiers();
     this.resolveObstaclesAndBounds();
     this.cullDead();
+    this.rallyRoutedSquads(dt);
+  }
+
+  // Routed squads that shake their pursuers regroup and rejoin the battle.
+  private rallyRoutedSquads(dt: number): void {
+    for (const squad of this.squads) {
+      if (squad.state !== 'routing' || squad.soldiers.length === 0) continue;
+      let cx = 0;
+      let cy = 0;
+      for (const s of squad.soldiers) {
+        cx += s.x;
+        cy += s.y;
+      }
+      cx /= squad.soldiers.length;
+      cy /= squad.soldiers.length;
+      const threat = this.grid.nearestEnemy(cx, cy, squad.team, RALLY_ENEMY_DISTANCE);
+      if (threat) {
+        squad.rallyProgress = 0;
+      } else {
+        squad.rallyProgress += dt;
+        if (squad.rallyProgress >= RALLY_TIME) squad.rally();
+      }
+    }
   }
 
   // Enemy squads advance on the nearest player squad once it's in aggro range.
@@ -145,7 +171,7 @@ export class Battle {
   // no more back ranks standing around watching the front rank brawl.
   private combat(dt: number): void {
     for (const squad of this.squads) {
-      if (squad.state === 'routing') {
+      if (squad.state !== 'steady') {
         squad.inMelee = false;
         continue;
       }
@@ -222,12 +248,13 @@ export class Battle {
     }
   }
 
-  // Hard guarantees after all steering: nobody inside a rock; steady soldiers stay
-  // on the map, routed ones may run off the edge and are removed once fully out.
+  // Hard guarantees after all steering: nobody inside a rock; only FLEEING
+  // soldiers may run off the edge (and are removed once fully out) — routed
+  // squads stay on the field, since they might rally.
   private resolveObstaclesAndBounds(): void {
     const world = this.world;
     for (const squad of this.squads) {
-      const routing = squad.state === 'routing';
+      const mayLeave = squad.state === 'fleeing';
       for (const s of squad.soldiers) {
         for (const o of world.obstacles) {
           if (o.kind !== 'rock') continue;
@@ -240,7 +267,7 @@ export class Battle {
           s.x = o.x + (dx / d) * min;
           s.y = o.y + (dy / d) * min;
         }
-        if (routing) {
+        if (mayLeave) {
           if (
             s.x < -40 ||
             s.x > world.widthPx + 40 ||

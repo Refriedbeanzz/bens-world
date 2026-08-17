@@ -19,15 +19,21 @@ const ARRIVE_RADIUS = 5;
 const MARCH_ACCEL = 26; // px/s²
 const MARCH_DECEL = 40; // px/s²
 const AVOID_LOOKAHEAD = 70; // how far ahead a soldier scans for an obstacle in his way
-// A squad breaks and runs after losing this fraction of its starting men.
+// Morale: at ROUT losses a squad breaks and runs, but can rally and rejoin the
+// fight. At SHATTER losses — or breaking a second time — it flees the battle
+// for good.
 const ROUT_CASUALTY_FRACTION = 0.4;
+const SHATTER_CASUALTY_FRACTION = 0.7;
 // Charging: much faster, hits harder on impact — and (later) more vulnerable to
 // arrows and formation counters like braced pikes. Read `charging` for those.
 const CHARGE_SPEED_MULT = 1.8;
 const CHARGE_ACCEL_MULT = 1.7;
 const CHARGE_SOLDIER_SPEED_MULT = 1.6;
+// Formation discipline: a soldier breaks off a chase once it drags him this far
+// from his squad's anchor — no endless cross-map pursuit of routed men.
+const PURSUIT_LEASH = 170;
 
-export type SquadState = 'steady' | 'routing';
+export type SquadState = 'steady' | 'routing' | 'fleeing';
 export type SoldierLookup = (id: number) => Soldier | undefined;
 
 // True when the straight segment crosses nothing but open ground. Forest counts as
@@ -72,6 +78,10 @@ export class Squad {
   inMelee = false;
   // True from the charge order until impact or arrival.
   charging = false;
+  // A squad that has rallied once flees for good the next time it breaks.
+  rallied = false;
+  // Seconds of breathing room accumulated while routing; battle drives this.
+  rallyProgress = 0;
   anchorX: number;
   anchorY: number;
   facing: number;
@@ -205,7 +215,7 @@ export class Squad {
     this.steerSoldiers(dt, world, getSoldier);
   }
 
-  /** Drop the dead, tighten the formation, and break if losses are past the morale line. */
+  /** Drop the dead, tighten the formation, and break if losses are past the morale lines. */
   removeDead(): Soldier[] {
     const dead = this.soldiers.filter((s) => s.hp <= 0 || s.escaped);
     if (dead.length === 0) return dead;
@@ -217,14 +227,43 @@ export class Squad {
       this.slots = layoutSlots(this.formation, this.soldiers.length);
       this.reassignSlots();
     }
-    if (
-      this.state === 'steady' &&
-      this.soldiers.length <= this.initialCount * (1 - ROUT_CASUALTY_FRACTION)
-    ) {
-      this.state = 'routing';
-      for (const s of this.soldiers) s.targetId = 0;
+    const losses = 1 - this.soldiers.length / this.initialCount;
+    if (this.state !== 'fleeing' && losses >= SHATTER_CASUALTY_FRACTION) {
+      this.breakAndRun('fleeing');
+    } else if (this.state === 'steady' && losses >= ROUT_CASUALTY_FRACTION) {
+      // A squad that already rallied once doesn't break twice — it quits the field.
+      this.breakAndRun(this.rallied ? 'fleeing' : 'routing');
     }
     return dead;
+  }
+
+  private breakAndRun(state: 'routing' | 'fleeing'): void {
+    this.state = state;
+    this.rallyProgress = 0;
+    this.charging = false;
+    this.inMelee = false;
+    this.attackTarget = null;
+    this.orderX = null;
+    this.orderY = null;
+    this.speed = 0;
+    for (const s of this.soldiers) s.targetId = 0;
+  }
+
+  /** Routed men regain their nerve: reform on the spot, commandable again. */
+  rally(): void {
+    if (this.state !== 'routing' || this.soldiers.length === 0) return;
+    this.state = 'steady';
+    this.rallied = true;
+    this.rallyProgress = 0;
+    let cx = 0;
+    let cy = 0;
+    for (const s of this.soldiers) {
+      cx += s.x;
+      cy += s.y;
+    }
+    this.anchorX = cx / this.soldiers.length;
+    this.anchorY = cy / this.soldiers.length;
+    this.reassignSlots();
   }
 
   private moveAnchor(dt: number, world: World): void {
@@ -317,8 +356,8 @@ export class Squad {
   }
 
   private steerSoldiers(dt: number, world: World, getSoldier: SoldierLookup): void {
-    const routing = this.state === 'routing';
-    // Routed soldiers run for their own map edge.
+    // Both broken states run for their own map edge; only 'fleeing' actually leaves.
+    const routing = this.state !== 'steady';
     const fleeX = this.team === 0 ? -120 : world.widthPx + 120;
 
     for (const s of this.soldiers) {
@@ -331,9 +370,12 @@ export class Squad {
       let flowDir: [number, number] | null = null;
 
       const target = !routing && s.targetId !== 0 ? getSoldier(s.targetId) : undefined;
+      const withinLeash =
+        (this.anchorX - s.x) ** 2 + (this.anchorY - s.y) ** 2 <= PURSUIT_LEASH * PURSUIT_LEASH;
       const engaged =
         target !== undefined &&
         target.hp > 0 &&
+        withinLeash &&
         (target.x - s.x) ** 2 + (target.y - s.y) ** 2 <= MELEE_PURSUE * MELEE_PURSUE;
 
       if (routing) {

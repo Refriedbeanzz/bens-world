@@ -103,26 +103,70 @@ console.log('S2: formation cycling on the move');
   assert(worst < 60, `S2: formation failed to reassemble (straggler ${worst.toFixed(0)}px from slot)`);
 }
 
-// S3: lopsided fight — the small squad must break, flee, and drain off the map.
-console.log('S3: rout and escape');
+// S3: hopeless fight — the small squad must shatter, FLEE, and leave the map.
+console.log('S3: shatter and flee');
 {
   const battle = new Battle(4242, [
     { team: 0, count: 50, x: 0.45, y: 0.5, facing: 0, formation: 'line' },
-    { team: 1, count: 50, x: 0.55, y: 0.45, facing: Math.PI, formation: 'line' },
-    { team: 1, count: 50, x: 0.55, y: 0.55, facing: Math.PI, formation: 'line' },
+    { team: 1, count: 50, x: 0.55, y: 0.4, facing: Math.PI, formation: 'line' },
+    { team: 1, count: 50, x: 0.55, y: 0.5, facing: Math.PI, formation: 'line' },
+    { team: 1, count: 50, x: 0.55, y: 0.6, facing: Math.PI, formation: 'line' },
+    { team: 1, count: 50, x: 0.62, y: 0.5, facing: Math.PI, formation: 'line' },
   ]);
   const blue = battle.squads[0]!;
   blue.orderAttack(battle.squads[1]!, battle.world);
   let sawEscape = false;
+  let sawFleeing = false;
   const ticks = Math.round(240 * 30);
   for (let i = 0; i < ticks; i++) {
     battle.tick(DT);
     for (const d of battle.consumeDeaths()) if (d.escaped) sawEscape = true;
+    if (blue.state === 'fleeing') sawFleeing = true;
+    // Red commander hunts the broken squad down (attack orders drop routed
+    // targets, so chase its position with move orders).
+    if (i % 60 === 0 && blue.state === 'routing' && blue.soldiers.length > 0) {
+      const bs = blue.soldiers[0]!;
+      for (const red of battle.squads) {
+        if (red.team === 1) red.orderMove(bs.x, bs.y, battle.world);
+      }
+    }
     if (i % 30 === 0) checkInvariants(battle, 'S3', i);
     if (blue.soldiers.length === 0) break;
   }
-  assert(blue.state === 'routing' || blue.soldiers.length === 0, 'S3: outnumbered squad never broke');
-  assert(sawEscape || blue.soldiers.length === 0, 'S3: routed soldiers never escaped the map');
+  assert(sawFleeing, 'S3: hopeless squad never shattered into fleeing');
+  assert(sawEscape || blue.soldiers.length === 0, 'S3: fleeing soldiers never escaped the map');
+}
+
+// S6: rout then rally — a broken squad given breathing room must regroup as steady.
+console.log('S6: rout and rally');
+{
+  const battle = new Battle(1357, [
+    { team: 0, count: 50, x: 0.35, y: 0.5, facing: 0, formation: 'line' },
+    { team: 1, count: 50, x: 0.5, y: 0.45, facing: Math.PI, formation: 'line' },
+    { team: 1, count: 50, x: 0.5, y: 0.55, facing: Math.PI, formation: 'line' },
+  ]);
+  const blue = battle.squads[0]!;
+  blue.orderAttack(battle.squads[1]!, battle.world);
+  let broke = false;
+  const ticks = Math.round(180 * 30);
+  for (let i = 0; i < ticks; i++) {
+    battle.tick(DT);
+    battle.consumeDeaths();
+    if (blue.state === 'routing') broke = true;
+    // The moment blue breaks, pull the red squads far away so it can rally.
+    if (broke && i % 60 === 0 && blue.state === 'routing') {
+      for (const red of battle.squads) {
+        if (red.team === 1) {
+          red.orderMove(battle.world.widthPx * 0.95, battle.world.heightPx * 0.1, battle.world);
+        }
+      }
+    }
+    if (i % 30 === 0) checkInvariants(battle, 'S6', i);
+    if (broke && blue.state === 'steady') break;
+  }
+  assert(broke, 'S6: squad never routed');
+  assert(blue.state === 'steady' && blue.rallied, 'S6: routed squad never rallied');
+  assert(blue.soldiers.length > 0, 'S6: rallied squad has no men');
 }
 
 // S4: determinism — two identical runs must produce byte-identical battles.
