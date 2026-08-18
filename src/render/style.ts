@@ -265,6 +265,66 @@ export function paintedShade(
   crescent(g, cx, cy, r, darkAngle, 0.85, r * 0.18, shadow, 0.17);
 }
 
+/**
+ * Scratchy shading strokes packed into one side of a shape — the inked way to
+ * darken a surface, as opposed to laying a flat translucent wash over it.
+ * Strokes bunch toward `towardAngle` and run roughly across it, so the shape
+ * gets denser and rougher the deeper into shadow it goes.
+ */
+export function crossHatch(
+  g: Graphics,
+  rng: Rng,
+  cx: number,
+  cy: number,
+  r: number,
+  towardAngle: number,
+  count: number,
+  color: number,
+  alpha: number,
+  width = 0.5,
+): void {
+  for (let i = 0; i < count; i++) {
+    // Bias both the angle and the distance toward the shaded side, so the
+    // hatching thins out rather than stopping at a hard edge.
+    const a = towardAngle + rng.range(-1.45, 1.45);
+    const d = r * rng.range(0.15, 0.95) * rng.range(0.6, 1);
+    const x = cx + Math.cos(a) * d;
+    const y = cy + Math.sin(a) * d;
+    const dir = towardAngle + Math.PI / 2 + rng.range(-0.4, 0.4);
+    const len = r * rng.range(0.12, 0.32);
+    g.moveTo(x - (Math.cos(dir) * len) / 2, y - (Math.sin(dir) * len) / 2)
+      .lineTo(x + (Math.cos(dir) * len) / 2, y + (Math.sin(dir) * len) / 2)
+      .stroke({ width: width * rng.range(0.7, 1.35), color, alpha: alpha * rng.range(0.55, 1) });
+  }
+}
+
+/**
+ * Speckled surface grain — the flecks that stop a fill reading as flat colour.
+ * Rock mica, bark roughness, leaf noise.
+ */
+export function stipple(
+  g: Graphics,
+  rng: Rng,
+  cx: number,
+  cy: number,
+  r: number,
+  count: number,
+  colors: number[],
+  alphaMin: number,
+  alphaMax: number,
+  sizeMin = 0.25,
+  sizeMax = 0.8,
+): void {
+  for (let i = 0; i < count; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = Math.sqrt(rng.next()) * r;
+    g.circle(cx + Math.cos(a) * d, cy + Math.sin(a) * d, rng.range(sizeMin, sizeMax)).fill({
+      color: colors[rng.int(0, colors.length - 1)]!,
+      alpha: rng.range(alphaMin, alphaMax),
+    });
+  }
+}
+
 /** A glossy specular fleck — a soft outer glow plus a bright hard core. Metal, gems, wet eyes. */
 export function specular(g: Graphics, cx: number, cy: number, r: number, alpha = 0.7): void {
   g.circle(cx, cy, r * 2.0).fill({ color: 0xffffff, alpha: alpha * 0.28 });
