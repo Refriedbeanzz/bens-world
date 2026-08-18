@@ -17,7 +17,7 @@ animations, art style, pathfinding, formations, combat — then expand (more map
 
 | Project | Branch | Phases done | Phases left | State |
 |---|---|---|---|---|
-| Battle sim core | main | BW0–BW7 | BW8 | in-progress |
+| Battle sim core | main | BW0–BW7 | BW8 (terrain + snags done; trees/rocks unverified) | in-progress |
 
 ## Phases
 
@@ -63,9 +63,41 @@ animations, art style, pathfinding, formations, combat — then expand (more map
     edges), rocks are rounded via a new `smoothBlob()` curve-through-jittered-points helper, and a
     ground-litter pass (twigs, tree-base leaf flecks) plus higher brush/grit/tuft/bush density were
     added for "go crazy on details." Prone corpses (added last session) had their head/leg
-    orientation mirrored per feedback that it read backwards. Not yet visually confirmed in-browser
-    by Jonathan — next session should open the dev server and eyeball a map before moving on.
-    Committed + pushed to origin/main at `267a107`.
+    orientation mirrored per feedback that it read backwards. Committed at `267a107`.
+  - **Session 2026-08-17 (2), merged to main at `444faeb`**:
+    - **Elevation contours** — true iso-height lines every 4.5% of the height range, every 4th
+      weighted as an index contour. Thickness is measured in PIXELS (height delta / local
+      gradient), so a line keeps the same weight on gentle and steep ground alike. Baked into the
+      ground texture, not drawn as Graphics strokes: at default zoom the whole 2560x1600 field is
+      scaled down to fit a screen, which made the first stroke-based attempt sub-pixel and
+      invisible. Ink strokes ride on top for hand-drawn character. Hillshade gain raised;
+      hachures pulled back to genuine crests so they stop crosshatching the contours.
+      **Verified in-browser** — elevation is now legible at a glance on every map.
+    - **Dead trees (snags)** rebuilt — limbs bend, taper and fork recursively instead of firing
+      even straight spokes from a point; broken stump in the middle; shadow is the tree's own
+      branch silhouette replayed from the same seed. **Verified in-browser.**
+    - **Morale retuned** — squads were breaking at 40% casualties while the AI separately pulled
+      any squad below 50% strength to the rear, so both sides ran on contact and battles became
+      chases. Now rout 62% / shatter 85% / AI withdraw 30%, and squads rally twice before quitting.
+      All 11 sim checks pass. Constants: `ROUT_CASUALTY_FRACTION`, `SHATTER_CASUALTY_FRACTION`,
+      `MAX_RALLIES` in `sim/squad.ts`, `MAULED_FRACTION` in `sim/ai.ts`.
+    - **NOT VERIFIED — trees and boulders.** Rebuilt three times against Jonathan's supplied
+      battlemap references (DiceGrimorium / Tehox): three-tone foliage ramping from a near-black
+      rim to a bright lit core, broadleaves as concentric scalloped rosettes cut by radial
+      creases, bushier species as inked leaf bundles over bare branches, rocks as angular slabs
+      with bold black outlines and flat lit/shadow planes in cool blue-greys. Type-checks and
+      builds, but the Chrome extension lost `localhost` access partway through so NONE of it has
+      been seen rendered. **Next session: look at greenwood/meadow first and expect a tuning pass.**
+    - Style reference images live in `C:\Users\JonathanSherman\Downloads\` (`anrlbwmla9oa1.jpg`,
+      `epic-battlemaps-footprints.jpg`, `csiduppmkgo41 (1).jpg`) — re-share them into any session
+      doing art work, they are not in the repo.
+    - **Asset question settled for now**: no free CC0 pack matches the reference style (the CC0
+      options are pixel art, VFX foliage, or 3D models; the LPC plant pack is CC-BY-SA/GPL and
+      would infect the repo). Closest real match is Forgotten Adventures, whose commercial terms
+      require contacting them for a custom licence for software products. Staying procedural;
+      trees and rocks sit behind two draw functions so a sprite swap stays easy later.
+    - Gotcha found: `scripts/` sits outside `tsc`, so a stale field reference in the check harness
+      only surfaced via `npm run check`. Run both before calling a sim change done.
 - **Later**: more battlefields, battle setup screen / army picker, multiplayer (lockstep over the
   deterministic sim).
 - **Later — player-created content**: custom units (stat-editor over the unittype data blocks,
