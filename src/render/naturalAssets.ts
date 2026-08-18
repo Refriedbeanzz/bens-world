@@ -1,6 +1,15 @@
 import { Graphics } from 'pixi.js';
 import { Rng } from '../sim/rng';
-import { grime, OUTLINE, paintedShade, smoothBlob, specular, wobblyCircle, wobblyLine } from './style';
+import {
+  grime,
+  OUTLINE,
+  paintedShade,
+  smoothBlob,
+  specular,
+  wobblyCircle,
+  wobblyEllipse,
+  wobblyLine,
+} from './style';
 import type { Biome } from '../sim/world';
 
 // A procedural asset LIBRARY: named species with genuinely different
@@ -61,19 +70,214 @@ export function treeTier(r: number): TreeTier {
   return r > 25 ? 'large' : r > 17 ? 'medium' : 'small';
 }
 
-function conifer(g: Graphics, rng: Rng, cx: number, cy: number, r: number, color: number, tiers: number, squash: number): void {
-  for (let t = 0; t < tiers; t++) {
-    const tr = r * (1 - t * (0.9 / tiers) * 0.6);
-    const ty = cy - t * r * 0.22;
-    const spikes = 10;
-    const pts: number[] = [];
-    for (let i = 0; i < spikes * 2; i++) {
-      const a = (i / (spikes * 2)) * Math.PI * 2;
-      const rr = tr * (i % 2 === 0 ? 1 : 0.7) * (1 + rng.range(-0.06, 0.06));
-      pts.push(cx + Math.cos(a) * rr, ty + Math.sin(a) * rr * squash);
-    }
-    g.poly(pts).fill(shade(color, 1 - t * 0.08)).stroke({ width: 0.8, color: OUTLINE, alpha: 0.7 });
+// ---------------------------- FOLIAGE ----------------------------
+// A crown is built from many small overlapping leaf clumps rather than a few
+// flat lobes with a crescent painted on. A top-down tree in this style reads
+// as a MASS of foliage catching light unevenly; a solid disc with a highlight
+// arc reads as a green button, which is what these were.
+
+/** The deep shadow tone a species' foliage falls to where no light reaches. */
+function canopyShadow(species: TreeSpecies): number {
+  return lerpColor(species.dark, 0x080f06, 0.45);
+}
+
+/** One clump of leaves: a small irregular blob, sometimes edged for leaf definition. */
+function leafClump(g: Graphics, rng: Rng, x: number, y: number, r: number, color: number): void {
+  const n = 7;
+  const pts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const rr = r * rng.range(0.68, 1.3);
+    pts.push(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
   }
+  smoothBlob(g, pts, color, lerpColor(color, 0x080f06, 0.55), rng.next() < 0.45 ? 0.5 : 0);
+}
+
+export interface Lobe {
+  x: number;
+  y: number;
+  rx: number;
+  ry: number;
+}
+
+/** How far inside the union of lobes a point sits: 1 at a lobe's centre, 0 outside them all. */
+function insideLobes(lobes: Lobe[], px: number, py: number): number {
+  let best = 0;
+  for (const l of lobes) {
+    const dx = (px - l.x) / l.rx;
+    const dy = (py - l.y) / l.ry;
+    const d = Math.hypot(dx, dy);
+    if (d < 1 && 1 - d > best) best = 1 - d;
+  }
+  return best;
+}
+
+/** March outward from (cx, cy) along an angle and return the last radius still inside the crown. */
+function crownEdge(lobes: Lobe[], cx: number, cy: number, angle: number, maxR: number): number {
+  const dx = Math.cos(angle);
+  const dy = Math.sin(angle);
+  let last = 0;
+  for (let t = 0.1; t <= 1.0; t += 0.06) {
+    if (insideLobes(lobes, cx + dx * maxR * t, cy + dy * maxR * t) > 0) last = maxR * t;
+  }
+  return last;
+}
+
+/**
+ * Fill a crown (one or more overlapping lobes) with clumped foliage: a near
+ * black under-mass so every gap between clumps reads as canopy shadow rather
+ * than grass showing through, clumps lit by which way they face the sun and
+ * how far out from the middle they sit, a rim of brighter clumps along the lit
+ * edge, and a couple of holes punched through to the dark interior.
+ */
+function crownFoliage(
+  g: Graphics,
+  rng: Rng,
+  lobes: Lobe[],
+  cx: number,
+  cy: number,
+  crownR: number,
+  species: TreeSpecies,
+  hue: number,
+): void {
+  const under = canopyShadow(species);
+  for (const l of lobes) wobblyEllipse(g, rng, l.x, l.y, l.rx, l.ry, under, OUTLINE, 1.2);
+
+  const clumpR = Math.max(2.0, crownR * 0.24);
+  // Scaled off radius, not area: a wood can hold a few hundred crowns and an
+  // area-proportional count would put tens of thousands of blobs in one
+  // Graphics. Big crowns still get roughly triple the clumps of small ones.
+  const target = Math.max(6, Math.round(crownR * 1.4));
+  let placed = 0;
+  for (let tries = 0; tries < target * 7 && placed < target; tries++) {
+    const px = cx + rng.range(-crownR, crownR);
+    const py = cy + rng.range(-crownR, crownR);
+    const ins = insideLobes(lobes, px, py);
+    if (ins <= 0.03) continue;
+    placed++;
+    const dx = px - cx;
+    const dy = py - cy;
+    const dist = Math.hypot(dx, dy);
+    // Which way this clump faces relative to the sun, weighted by how far out
+    // it sits — the middle of a crown is ambient, the edges take a side.
+    const facing = dist > 0.5 ? (dx * Math.cos(LIGHT_A) + dy * Math.sin(LIGHT_A)) / dist : 0;
+    const out = Math.min(1, dist / crownR);
+    const t = 0.4 + facing * out * 0.42 + (1 - ins) * -0.1 + hue + rng.range(-0.09, 0.09);
+    leafClump(
+      g,
+      rng,
+      px,
+      py,
+      clumpR * rng.range(0.62, 1.3),
+      lerpColor(species.dark, species.light, Math.min(1, Math.max(0, t))),
+    );
+  }
+
+  // Sunlit rim: brighter, smaller clumps hugging the crown's lit edge.
+  const rimN = Math.max(3, Math.round(target * 0.22));
+  for (let i = 0; i < rimN; i++) {
+    const a = LIGHT_A + rng.range(-1.15, 1.15);
+    const edge = crownEdge(lobes, cx, cy, a, crownR * 1.3);
+    if (edge <= 0) continue;
+    const rr = edge * rng.range(0.7, 0.93);
+    leafClump(
+      g,
+      rng,
+      cx + Math.cos(a) * rr,
+      cy + Math.sin(a) * rr,
+      clumpR * rng.range(0.45, 0.85),
+      lerpColor(species.light, 0xeeffcc, 0.3),
+    );
+  }
+
+  // Holes through the crown to the shadow underneath.
+  for (let i = 0; i < rng.int(1, 3); i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = rng.range(0.15, 0.62) * crownR;
+    const hx = cx + Math.cos(a) * d;
+    const hy = cy + Math.sin(a) * d;
+    if (insideLobes(lobes, hx, hy) <= 0.1) continue;
+    g.ellipse(hx, hy, clumpR * rng.range(0.35, 0.75), clumpR * rng.range(0.3, 0.65)).fill({
+      color: under,
+      alpha: 0.75,
+    });
+  }
+}
+
+/**
+ * One radial branch of a conifer: a narrow spike with needle notches down each
+ * side. Seen from above a pine is a wheel of these, not the flat serrated
+ * star the old code stamped out.
+ */
+function frond(
+  g: Graphics,
+  cx: number,
+  cy: number,
+  ax: number,
+  ay: number,
+  perpX: number,
+  perpY: number,
+  len: number,
+  w: number,
+  color: number,
+  outline: number,
+): void {
+  const K = 5;
+  const pts: number[] = [];
+  for (let k = 0; k <= K; k++) {
+    const t = k / K;
+    const wid = w * (1 - t) * (k % 2 === 0 ? 1 : 0.5);
+    pts.push(cx + ax * len * t - perpX * wid, cy + ay * len * t - perpY * wid);
+  }
+  for (let k = K; k >= 0; k--) {
+    const t = k / K;
+    const wid = w * (1 - t) * (k % 2 === 0 ? 0.5 : 1);
+    pts.push(cx + ax * len * t + perpX * wid, cy + ay * len * t + perpY * wid);
+  }
+  g.poly(pts).fill(color).stroke({ width: 0.4, color: outline, alpha: 0.45 });
+}
+
+/** A conifer crown: two rings of radial fronds over a dark under-mass. */
+function coniferCrown(
+  g: Graphics,
+  rng: Rng,
+  cx: number,
+  cy: number,
+  r: number,
+  species: TreeSpecies,
+  hue: number,
+  squash: number,
+): void {
+  const under = canopyShadow(species);
+  wobblyEllipse(g, rng, cx, cy, r * 0.9, r * 0.9 * squash, under, OUTLINE, 1.1);
+  for (let ring = 0; ring < 2; ring++) {
+    const rr = r * (ring === 0 ? 1 : 0.6);
+    const n = Math.max(7, Math.round(rr * 0.7));
+    const base = rng.range(0, Math.PI * 2) + ring * 0.5;
+    for (let i = 0; i < n; i++) {
+      const a = base + (i / n) * Math.PI * 2 + rng.range(-0.06, 0.06);
+      const ax = Math.cos(a);
+      const ay = Math.sin(a) * squash;
+      const facing = Math.cos(a) * Math.cos(LIGHT_A) + Math.sin(a) * Math.sin(LIGHT_A);
+      const t = 0.32 + facing * 0.34 + ring * 0.13 + hue + rng.range(-0.07, 0.07);
+      frond(
+        g,
+        cx,
+        cy,
+        ax,
+        ay,
+        -Math.sin(a),
+        Math.cos(a) * squash,
+        rr * rng.range(0.8, 1.06),
+        rr * 0.16,
+        lerpColor(species.dark, species.light, Math.min(1, Math.max(0, t))),
+        under,
+      );
+    }
+  }
+  // The leader at the very top of the tree, pointing straight at the viewer.
+  wobblyCircle(g, rng, cx, cy, r * 0.15, lerpColor(species.dark, species.light, 0.62 + hue), under, 0.6);
+  specular(g, cx + Math.cos(LIGHT_A) * r * 0.07, cy + Math.sin(LIGHT_A) * r * 0.07, r * 0.05, 0.25);
 }
 
 function drawRootFlare(g: Graphics, rng: Rng, x: number, y: number, tier: TreeTier, species: TreeSpecies): number {
@@ -278,60 +482,76 @@ export function drawTree(g: Graphics, rng: Rng, x: number, y: number, r: number,
 
   if (species.shape === 'conifer' || species.shape === 'narrowConifer') {
     const narrow = species.shape === 'narrowConifer';
-    const color = lerpColor(species.dark, species.light, 0.5 + hue);
-    const coniferR = narrow ? r * 0.8 : r;
-    conifer(g, rng, x, y, coniferR, color, narrow ? 4 : 3, narrow ? 0.7 : 0.85);
-    // Radius kept well inside the star's concave floor (spike points dip to
-    // 70% of coniferR) so the shading never pokes out past the needles into
-    // open air — that gap is exactly what read as a pale "aura" before.
-    paintedShade(g, x, y - r * 0.1, coniferR * 0.62, LIGHT_A, DARK_A, 0xcfe0b0, 0x0a0f06);
+    coniferCrown(g, rng, x, y, narrow ? r * 0.82 : r, species, hue, narrow ? 0.72 : 0.88);
+    void trunkR;
     return;
   }
 
   if (species.shape === 'weeping') {
     // Asymmetric main mass, plus drooping tendrils trailing outward/down.
-    const base = lerpColor(species.dark, species.light, 0.5 + hue);
     const massX = x - r * 0.1;
     const massY = y - r * 0.15;
-    const massR = r * 0.75;
-    wobblyCircle(g, rng, massX, massY, massR, base, OUTLINE, 0.9);
-    const tendrils = rng.int(7, 10);
+    const massR = r * 0.72;
+    const lobes: Lobe[] = [
+      { x: massX, y: massY, rx: massR, ry: massR * 0.95 },
+      { x: massX + r * 0.28, y: massY + r * 0.2, rx: massR * 0.55, ry: massR * 0.5 },
+    ];
+    crownFoliage(g, rng, lobes, massX, massY, massR * 1.15, species, hue);
+    const tendrils = rng.int(10, 15);
     for (let i = 0; i < tendrils; i++) {
-      const a = (i / tendrils) * Math.PI * 2;
+      const a = (i / tendrils) * Math.PI * 2 + rng.range(-0.15, 0.15);
       const startR = r * 0.55;
       const x0 = x + Math.cos(a) * startR * 0.6;
       const y0 = y + Math.sin(a) * startR * 0.6 - r * 0.1;
-      const x1 = x + Math.cos(a) * r * rng.range(0.9, 1.2);
+      const x1 = x + Math.cos(a) * r * rng.range(0.9, 1.25);
       const y1 = y + Math.sin(a) * r * rng.range(0.5, 0.75) + r * 0.35;
       g.moveTo(x0, y0).quadraticCurveTo(x0, y0 + r * 0.4, x1, y1).stroke({
-        width: 0.9,
-        color: lerpColor(species.dark, species.light, rng.range(0.3, 0.7)),
-        alpha: 0.75,
+        width: rng.range(0.7, 1.3),
+        color: lerpColor(species.dark, species.light, rng.range(0.3, 0.8)),
+        alpha: 0.8,
       });
+      // A few leaf flecks strung along the trailing end of each withy.
+      for (let k = 0; k < rng.int(1, 3); k++) {
+        const t = rng.range(0.55, 1);
+        g.circle(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, rng.range(0.6, 1.3)).fill({
+          color: lerpColor(species.dark, species.light, rng.range(0.4, 0.9)),
+          alpha: 0.85,
+        });
+      }
     }
-    // Shaded on the actual round mass only (tendrils are thin strokes, not a
-    // filled area a circular shade could safely wrap).
-    paintedShade(g, massX, massY, massR * 0.75, LIGHT_A, DARK_A, 0xcfe0b0, 0x0a0f06);
+    void trunkR;
     return;
   }
 
-  // 'round' and 'oval': multi-lobe canopy, oval species sparser/taller with
-  // more visible gaps (thin trunk peeking between lobes) and a lighter wash.
-  // Shading is applied PER LOBE (each already knows its own true center and
-  // radius) rather than one big wrap over the whole cluster — a multi-blob
-  // silhouette has no single circle that safely bounds it, and wrapping one
-  // anyway was exactly what leaked a pale halo into the gaps between lobes.
+  // 'round' and 'oval': a crown of overlapping lobes filled with clumped
+  // foliage. Oval species are taller and sparser, so the trunk drawn
+  // underneath shows through the gaps.
   const oval = species.shape === 'oval';
-  const lobes = oval ? (tier === 'small' ? 2 : 3) : tier === 'small' ? 2 : tier === 'medium' ? 3 : 5;
-  for (let i = 0; i < lobes; i++) {
-    const a = (i / lobes) * Math.PI * 2 + rng.range(-0.3, 0.3);
+  const lobeCount = oval ? (tier === 'small' ? 2 : 3) : tier === 'small' ? 2 : tier === 'medium' ? 3 : 5;
+  const lobes: Lobe[] = [];
+  for (let i = 0; i < lobeCount; i++) {
+    const a = (i / lobeCount) * Math.PI * 2 + rng.range(-0.3, 0.3);
     const d = i === 0 ? 0 : r * rng.range(0.25, 0.42) * (oval ? 1.15 : 1);
-    const lr = r * (i === 0 ? rng.range(0.7, 0.9) : rng.range(0.42, 0.62)) * (oval ? 0.9 : 1);
-    const lobeHue = hue + rng.range(-0.05, 0.05);
-    const lx = x + Math.cos(a) * d;
-    const ly = y + Math.sin(a) * d * (oval ? 1.3 : 1);
-    wobblyCircle(g, rng, lx, ly, lr, lerpColor(species.dark, species.light, 0.5 + lobeHue), OUTLINE, 0.9);
-    paintedShade(g, lx, ly, lr * 0.85, LIGHT_A, DARK_A, 0xd8ecb0, 0x0a0f06);
+    const lr = r * (i === 0 ? rng.range(0.72, 0.92) : rng.range(0.44, 0.64)) * (oval ? 0.9 : 1);
+    lobes.push({
+      x: x + Math.cos(a) * d,
+      y: y + Math.sin(a) * d * (oval ? 1.3 : 1),
+      rx: lr,
+      ry: lr * (oval ? 1.15 : 1),
+    });
+  }
+  crownFoliage(g, rng, lobes, x, y, r * 1.05, species, hue);
+
+  // Boughs showing through the leaves on a big old crown — the structure a
+  // large tree reads by even from directly above.
+  if (tier === 'large') {
+    for (let i = 0; i < rng.int(3, 5); i++) {
+      const a = rng.range(0, Math.PI * 2);
+      const len = r * rng.range(0.45, 0.8);
+      g.moveTo(x, y)
+        .lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len)
+        .stroke({ width: rng.range(0.9, 1.6), color: species.barkDark, alpha: 0.3, cap: 'round' });
+    }
   }
   if (tier !== 'small' && rng.next() < 0.55) {
     grime(g, rng, x, y, r * 0.85, 3, [0x6a5030, 0x8a7038]);
@@ -369,118 +589,273 @@ function boulderSilhouette(rng: Rng, x: number, y: number, r: number, sides: num
   const pts: number[] = [];
   for (let i = 0; i < sides; i++) {
     const a = (i / sides) * Math.PI * 2;
-    const rr = r * rng.range(jitter[0], jitter[1]);
+    // Every so often a vertex bites deep inward — a chipped or weathered
+    // notch. A ring of evenly-jittered points alone gives a smooth potato.
+    const chip = rng.next() < 0.12 ? rng.range(0.62, 0.75) : 1;
+    const rr = r * rng.range(jitter[0], jitter[1]) * chip;
     pts.push(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
   }
   return pts;
 }
 
+/**
+ * Break a rock into flat planes. One smooth blob with a light crescent over it
+ * reads as a pebble; real stone catches light on distinct faces, and drawing
+ * those faces is most of what separates rock from potato. Each facet runs from
+ * an off-centre apex out to a stretch of the silhouette, and is lit by how far
+ * that stretch turns toward the sun.
+ */
+function rockFacets(
+  g: Graphics,
+  rng: Rng,
+  pts: number[],
+  cx: number,
+  cy: number,
+  r: number,
+  base: number,
+  dark: number,
+): void {
+  const n = pts.length / 2;
+  // The rock's high point, thrown off-centre so the planes are uneven.
+  const apexA = LIGHT_A + rng.range(-1.0, 1.0);
+  const ax = cx + Math.cos(apexA) * r * rng.range(0.1, 0.28);
+  const ay = cy + Math.sin(apexA) * r * rng.range(0.1, 0.28);
+  const groups = rng.int(4, 6);
+  for (let gi = 0; gi < groups; gi++) {
+    const i0 = Math.round((gi / groups) * n);
+    const i1 = Math.round(((gi + 1) / groups) * n);
+    const poly: number[] = [ax, ay];
+    let mx = 0;
+    let my = 0;
+    for (let i = i0; i <= i1; i++) {
+      const k = i % n;
+      poly.push(pts[k * 2]!, pts[k * 2 + 1]!);
+      mx += pts[k * 2]!;
+      my += pts[k * 2 + 1]!;
+    }
+    const count = i1 - i0 + 1;
+    // Which way this plane faces, taken from its midpoint relative to the apex.
+    const fx = mx / count - ax;
+    const fy = my / count - ay;
+    const flen = Math.hypot(fx, fy) || 1;
+    const facing = (fx * Math.cos(LIGHT_A) + fy * Math.sin(LIGHT_A)) / flen;
+    g.poly(poly).fill({ color: shade(base, 0.74 + facing * 0.33 + rng.range(-0.03, 0.03)), alpha: 0.9 });
+    // The crease where this plane meets the next.
+    g.moveTo(ax, ay)
+      .lineTo(pts[(i0 % n) * 2]!, pts[(i0 % n) * 2 + 1]!)
+      .stroke({ width: rng.range(0.4, 0.8), color: dark, alpha: 0.45 });
+  }
+}
+
+/** Wandering cracks with a sunlit lip along the upper side of each. */
+function rockCracks(
+  g: Graphics,
+  rng: Rng,
+  cx: number,
+  cy: number,
+  r: number,
+  dark: number,
+  light: number,
+  count: number,
+): void {
+  const lx = Math.cos(LIGHT_A) * 0.7;
+  const ly = Math.sin(LIGHT_A) * 0.7;
+  for (let i = 0; i < count; i++) {
+    const sa = rng.range(0, Math.PI * 2);
+    let x = cx + Math.cos(sa) * r * rng.range(0, 0.4);
+    let y = cy + Math.sin(sa) * r * rng.range(0, 0.4);
+    let dir = rng.range(0, Math.PI * 2);
+    const segs = rng.int(3, 6);
+    for (let s = 0; s < segs; s++) {
+      dir += rng.range(-0.65, 0.65);
+      const len = r * rng.range(0.13, 0.3);
+      const nx = x + Math.cos(dir) * len;
+      const ny = y + Math.sin(dir) * len;
+      if (Math.hypot(nx - cx, ny - cy) > r * 0.9) break;
+      g.moveTo(x, y).lineTo(nx, ny).stroke({ width: rng.range(0.5, 1.1), color: dark, alpha: 0.72 });
+      g.moveTo(x + lx, y + ly)
+        .lineTo(nx + lx, ny + ly)
+        .stroke({ width: 0.4, color: light, alpha: 0.28 });
+      x = nx;
+      y = ny;
+    }
+  }
+}
+
+/** Mica/quartz grain: tiny light and dark flecks scattered over the face. */
+function mineralGrain(
+  g: Graphics,
+  rng: Rng,
+  cx: number,
+  cy: number,
+  r: number,
+  light: number,
+  dark: number,
+  count: number,
+): void {
+  for (let i = 0; i < count; i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = Math.sqrt(rng.next()) * r * 0.84;
+    g.circle(cx + Math.cos(a) * d, cy + Math.sin(a) * d, rng.range(0.25, 0.75)).fill({
+      color: rng.next() < 0.5 ? light : dark,
+      alpha: rng.range(0.18, 0.5),
+    });
+  }
+}
+
+/** A lichen patch: a ragged blob with a paler halo, not a round splat. */
+function lichenPatch(g: Graphics, rng: Rng, cx: number, cy: number, r: number, color: number): void {
+  const n = 10;
+  const pts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const rr = r * rng.range(0.45, 1.25);
+    pts.push(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+  }
+  smoothBlob(g, pts, color, 0, 0);
+  for (let i = 0; i < rng.int(3, 6); i++) {
+    const a = rng.range(0, Math.PI * 2);
+    const d = r * rng.range(0.6, 1.15);
+    g.circle(cx + Math.cos(a) * d, cy + Math.sin(a) * d, rng.range(0.5, 1.4)).fill({
+      color: lerpColor(color, 0xc8d89a, 0.4),
+      alpha: 0.55,
+    });
+  }
+}
+
 /** Draw one rock at (x, y) with base radius r, of the given species. */
 export function drawRock(g: Graphics, rng: Rng, x: number, y: number, r: number, species: RockSpecies): void {
+  const lightTone = lerpColor(species.base, 0xffffff, 0.35);
   switch (species.shape) {
     case 'layered': {
-      // 2-3 flattened, slightly offset plates — sedimentary/slab strata.
-      const plates = rng.int(2, 3);
+      // Stacked sedimentary plates, each a slab with its own lit top edge and
+      // undercut shadow, so the stack reads as beds of rock rather than a pile
+      // of flat ovals.
+      const plates = rng.int(3, 4);
       for (let i = 0; i < plates; i++) {
-        const oy = (i - (plates - 1) / 2) * r * 0.28;
-        const w = r * (1.05 - i * 0.12);
-        const h = r * 0.42;
-        const pts = boulderSilhouette(rng, x, y + oy, w, 10, [0.82, 1.0]).map((v, idx) =>
+        const oy = (i - (plates - 1) / 2) * r * 0.24;
+        const w = r * (1.05 - i * 0.09);
+        const h = r * 0.4;
+        const pts = boulderSilhouette(rng, x, y + oy, w, 12, [0.82, 1.0]).map((v, idx) =>
           idx % 2 === 1 ? y + oy + (v - (y + oy)) * (h / w) : v,
         );
-        smoothBlob(g, pts, shade(species.base, 1 - i * 0.08), species.dark, 1);
-        wobblyLine(g, rng, x - w * 0.8, y + oy - h * 0.15, x + w * 0.8, y + oy - h * 0.1, 0.5, species.dark);
-        // Shading radius bounded by the plate's SHORT axis (height, not
-        // width) — plates are far shorter than they are wide, and a circular
-        // wrap sized off the width overshot badly, floating a pale halo
-        // above/below the actual slab.
+        const tone = shade(species.base, 1 - i * 0.07);
+        smoothBlob(g, pts, tone, species.dark, 1);
+        // Shadow the plate below throws under this one's overhang.
+        g.moveTo(x - w * 0.85, y + oy + h * 0.55)
+          .quadraticCurveTo(x, y + oy + h * 0.95, x + w * 0.85, y + oy + h * 0.5)
+          .stroke({ width: r * 0.09, color: species.dark, alpha: 0.35 });
+        // Bedding seams across the face.
+        for (let k = 0; k < 2; k++) {
+          const sy = y + oy + h * rng.range(-0.4, 0.35);
+          wobblyLine(g, rng, x - w * 0.78, sy, x + w * 0.78, sy + rng.range(-1.5, 1.5), 0.5, species.dark, 0.5);
+        }
+        wobblyLine(g, rng, x - w * 0.7, y + oy - h * 0.55, x + w * 0.7, y + oy - h * 0.5, 0.7, lightTone, 0.45);
+        mineralGrain(g, rng, x, y + oy, w * 0.8, lightTone, species.dark, Math.round(w * 0.7));
         paintedShade(g, x, y + oy, h * 0.85, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       }
       break;
     }
     case 'rubble': {
-      // A loose cluster of small rocks — no single dominant boulder.
-      const n = rng.int(4, 6);
+      // A loose cluster of small rocks — no single dominant boulder. Each
+      // piece is faceted in its own right and throws a scrap of shadow onto
+      // whatever it sits in front of.
+      const n = rng.int(5, 8);
       for (let i = 0; i < n; i++) {
         const a = rng.range(0, Math.PI * 2);
-        const d = r * rng.range(0, 0.7);
-        const rr = r * rng.range(0.28, 0.5);
+        const d = r * rng.range(0, 0.75);
+        const rr = r * rng.range(0.24, 0.48);
         const px = x + Math.cos(a) * d;
         const py = y + Math.sin(a) * d;
+        g.ellipse(px - Math.cos(LIGHT_A) * rr * 0.35, py - Math.sin(LIGHT_A) * rr * 0.35, rr * 0.95, rr * 0.7).fill({
+          color: 0x000000,
+          alpha: 0.16,
+        });
         const pts = boulderSilhouette(rng, px, py, rr, rng.int(8, 10), [0.82, 1.02]);
-        smoothBlob(g, pts, species.base, species.dark, 0.7);
-        // Kept safely inside this piece's own jittered silhouette (min 0.82rr).
+        smoothBlob(g, pts, species.base, species.dark, 0.8);
+        rockFacets(g, rng, pts, px, py, rr, species.base, species.dark);
+        mineralGrain(g, rng, px, py, rr, lightTone, species.dark, Math.round(rr * 0.9));
         paintedShade(g, px, py, rr * 0.62, LIGHT_A, DARK_A, 0xe8e4d8, 0x000000);
       }
       break;
     }
     case 'faceted': {
-      const pts = boulderSilhouette(rng, x, y, r, rng.int(9, 12), [0.84, 1.06]);
-      smoothBlob(g, pts, species.base, species.dark, 1.2);
-      // Kept inside the silhouette's minimum jitter (0.84r) so the shading
-      // never pokes past the actual jagged edge — that gap was the "aura."
+      const pts = boulderSilhouette(rng, x, y, r, rng.int(10, 13), [0.84, 1.06]);
+      smoothBlob(g, pts, species.base, species.dark, 1.3);
+      rockFacets(g, rng, pts, x, y, r, species.base, species.dark);
+      rockCracks(g, rng, x, y, r, species.dark, lightTone, rng.int(3, 5));
+      mineralGrain(g, rng, x, y, r, lightTone, species.dark, Math.round(r * 1.6));
       paintedShade(g, x, y, r * 0.62, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
-      const cracks = rng.int(3, 5);
-      for (let i = 0; i < cracks; i++) {
-        const a0 = rng.range(0, Math.PI * 2);
-        const a1 = a0 + rng.range(1.2, 2.6);
-        g.moveTo(x + Math.cos(a0) * r * 0.7, y + Math.sin(a0) * r * 0.7)
-          .lineTo(x + Math.cos(a1) * r * 0.7, y + Math.sin(a1) * r * 0.7)
-          .stroke({ width: 0.6, color: species.dark, alpha: 0.6 });
-      }
       break;
     }
     case 'pitted': {
-      const pts = boulderSilhouette(rng, x, y, r, rng.int(9, 12), [0.84, 1.0]);
-      smoothBlob(g, pts, species.base, species.dark, 1.1);
-      paintedShade(g, x, y, r * 0.62, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
-      for (let i = 0; i < rng.int(5, 9); i++) {
+      const pts = boulderSilhouette(rng, x, y, r, rng.int(10, 13), [0.84, 1.0]);
+      smoothBlob(g, pts, species.base, species.dark, 1.2);
+      rockFacets(g, rng, pts, x, y, r, species.base, species.dark);
+      // Solution pits: each a dark hollow with a lit far rim, so they read as
+      // holes bored into the surface rather than dots painted on it.
+      for (let i = 0; i < rng.int(7, 12); i++) {
         const a = rng.range(0, Math.PI * 2);
-        const d = r * rng.range(0, 0.65);
-        g.circle(x + Math.cos(a) * d, y + Math.sin(a) * d, rng.range(0.6, 1.6)).fill({
-          color: species.dark,
-          alpha: 0.4,
+        const d = r * rng.range(0, 0.7);
+        const pr = rng.range(0.7, 2.0);
+        const px = x + Math.cos(a) * d;
+        const py = y + Math.sin(a) * d;
+        g.circle(px, py, pr).fill({ color: species.dark, alpha: 0.55 });
+        g.circle(px - Math.cos(LIGHT_A) * pr * 0.4, py - Math.sin(LIGHT_A) * pr * 0.4, pr * 0.55).fill({
+          color: lightTone,
+          alpha: 0.3,
         });
       }
+      mineralGrain(g, rng, x, y, r, lightTone, species.dark, Math.round(r * 1.2));
+      paintedShade(g, x, y, r * 0.62, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
       break;
     }
     default: {
-      // boulder — a smooth, rounded river-stone mass.
-      const pts = boulderSilhouette(rng, x, y, r, rng.int(10, 13), [0.86, 1.05]);
-      smoothBlob(g, pts, species.base, species.dark, 1.2);
+      // boulder — a rounded mass, but planed rather than smooth.
+      const pts = boulderSilhouette(rng, x, y, r, rng.int(11, 14), [0.86, 1.05]);
+      smoothBlob(g, pts, species.base, species.dark, 1.3);
+      rockFacets(g, rng, pts, x, y, r, species.base, species.dark);
+      rockCracks(g, rng, x, y, r, species.dark, lightTone, rng.int(2, 4));
+      mineralGrain(g, rng, x, y, r, lightTone, species.dark, Math.round(r * 1.4));
       paintedShade(g, x, y, r * 0.55, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
-      const cracks = rng.int(2, 3);
-      for (let i = 0; i < cracks; i++) {
-        const a0 = rng.range(0, Math.PI * 2);
-        const a1 = a0 + rng.range(1.4, 2.6);
-        const r0 = r * rng.range(0.3, 0.8);
-        const r1 = r * rng.range(0.3, 0.8);
-        g.moveTo(x + Math.cos(a0) * r0, y + Math.sin(a0) * r0)
-          .lineTo(x + Math.cos(a1) * r1, y + Math.sin(a1) * r1)
-          .stroke({ width: 0.6, color: species.dark, alpha: 0.55 });
-      }
     }
   }
 
-  if (species.mossy || rng.next() < 0.4) {
-    const ma = DARK_A + rng.range(-0.4, 0.4);
-    grime(g, rng, x + Math.cos(ma) * r * 0.4, y + Math.sin(ma) * r * 0.4, r * 0.55, rng.int(4, 7), [
-      MOSS,
-      0x5c6e34,
-      0x3a4620,
-    ]);
+  if (species.mossy || rng.next() < 0.45) {
+    // Lichen colonises the shaded side, in a few patches of varying size
+    // rather than one even sprinkle.
+    for (let i = 0; i < rng.int(2, 4); i++) {
+      const ma = DARK_A + rng.range(-0.8, 0.8);
+      const md = r * rng.range(0.25, 0.62);
+      lichenPatch(
+        g,
+        rng,
+        x + Math.cos(ma) * md,
+        y + Math.sin(ma) * md,
+        r * rng.range(0.14, 0.3),
+        [MOSS, 0x5c6e34, 0x3a4620][rng.int(0, 2)]!,
+      );
+    }
   }
-  if (rng.next() < 0.3) {
-    specular(g, x + Math.cos(LIGHT_A) * r * 0.3, y + Math.sin(LIGHT_A) * r * 0.3, r * 0.12, 0.4);
+  if (rng.next() < 0.45) {
+    specular(g, x + Math.cos(LIGHT_A) * r * 0.32, y + Math.sin(LIGHT_A) * r * 0.32, r * 0.11, 0.35);
   }
-  if (species.shape !== 'rubble' && r > 16 && rng.next() < 0.55) {
-    const n = rng.int(1, 3);
+  if (species.shape !== 'rubble' && r > 14 && rng.next() < 0.7) {
+    // Broken-off pieces resting at the base of the parent boulder.
+    const n = rng.int(1, 4);
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, Math.PI * 2);
-      const d = r * rng.range(0.8, 1.15);
-      const pr = r * rng.range(0.15, 0.3);
-      const pts = boulderSilhouette(rng, x + Math.cos(a) * d, y + Math.sin(a) * d, pr, rng.int(8, 10), [0.85, 1.02]);
-      smoothBlob(g, pts, species.base, species.dark, 0.7);
+      const d = r * rng.range(0.85, 1.2);
+      const pr = r * rng.range(0.12, 0.28);
+      const px = x + Math.cos(a) * d;
+      const py = y + Math.sin(a) * d;
+      g.ellipse(px - Math.cos(LIGHT_A) * pr * 0.4, py - Math.sin(LIGHT_A) * pr * 0.4, pr, pr * 0.72).fill({
+        color: 0x000000,
+        alpha: 0.16,
+      });
+      const pts = boulderSilhouette(rng, px, py, pr, rng.int(8, 10), [0.85, 1.02]);
+      smoothBlob(g, pts, species.base, species.dark, 0.8);
+      paintedShade(g, px, py, pr * 0.6, LIGHT_A, DARK_A, 0xf0ece0, 0x000000);
     }
   }
 }

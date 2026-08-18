@@ -765,18 +765,25 @@ export function buildObstacleLayer(world: World): Container {
   const treeMix = TREE_MIX[world.spec.biome] ?? TREE_MIX.meadow!;
   const rockMix = ROCK_MIX[world.spec.biome] ?? ROCK_MIX.meadow!;
 
-  for (const o of world.obstacles) {
+  // Species are picked up front so the shadow pass can see them: a bare snag
+  // casts its own branch-shaped shadow, and stamping the generic canopy
+  // ellipse under it too left a solid blob no leafless tree would throw.
+  const picked = world.obstacles.map((o) =>
+    o.kind === 'tree'
+      ? { o, tree: pick(rng, treeMix, TREE_SPECIES, (s) => s.key), rock: null }
+      : { o, tree: null, rock: pick(rng, rockMix, ROCK_SPECIES, (s) => s.key) },
+  );
+
+  for (const { o, tree } of picked) {
+    if (tree?.shape === 'dead') continue;
     shadows
       .ellipse(o.x + o.radius * 0.25, o.y + o.radius * 0.3, o.radius * 1.05, o.radius * 0.6)
       .fill({ color: SHADOW_COL, alpha: 0.2 });
   }
 
-  for (const o of world.obstacles) {
-    if (o.kind === 'tree') {
-      drawTree(bodies, rng, o.x, o.y, o.radius, pick(rng, treeMix, TREE_SPECIES, (s) => s.key));
-    } else {
-      drawRock(bodies, rng, o.x, o.y, o.radius, pick(rng, rockMix, ROCK_SPECIES, (s) => s.key));
-    }
+  for (const { o, tree, rock } of picked) {
+    if (tree) drawTree(bodies, rng, o.x, o.y, o.radius, tree);
+    else drawRock(bodies, rng, o.x, o.y, o.radius, rock!);
   }
 
   layer.addChild(shadows, bodies);
