@@ -18,7 +18,11 @@ const RANGED_BACKOFF = 190; // ranged stand this far behind the infantry line
 const RANGED_PANIC = 170; // an enemy this close sends ranged running further back
 const RANGED_SPREAD = 150;
 const CAV_MELEE_LIMIT = 7; // seconds bogged before cavalry extracts itself
-const MAULED_FRACTION = 0.5;
+// A squad is pulled to the rear only once it is down to this share of its
+// starting strength. Was 0.5, which had the AI withdrawing squads the moment a
+// fight became costly — half a squad is still a fighting squad, and constant
+// backing-off read as the whole army retreating on contact.
+const MAULED_FRACTION = 0.3;
 
 interface Mem {
   meleeSec: number;

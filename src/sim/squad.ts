@@ -26,10 +26,17 @@ const MARCH_ACCEL = 18; // px/s²
 const MARCH_DECEL = 32; // px/s²
 const AVOID_LOOKAHEAD = 70; // how far ahead a soldier scans for an obstacle in his way
 // Morale: at ROUT losses a squad breaks and runs, but can rally and rejoin the
-// fight. At SHATTER losses — or breaking a second time — it flees the battle
-// for good.
-const ROUT_CASUALTY_FRACTION = 0.4;
-const SHATTER_CASUALTY_FRACTION = 0.7;
+// fight. At SHATTER losses — or breaking one time too many — it flees the
+// battle for good.
+//
+// These were 0.4 / 0.7 with a single rally, which had squads running almost as
+// soon as a line clash got going: a melee chews through 40% of a squad in a few
+// seconds, and once broken most squads never came back, so battles turned into
+// chases rather than fights. A squad now has to lose well over half its number
+// before it breaks, and can be rallied twice before it quits the field.
+const ROUT_CASUALTY_FRACTION = 0.62;
+const SHATTER_CASUALTY_FRACTION = 0.85;
+const MAX_RALLIES = 2;
 // Charging: much faster, hits harder on impact — and (later) more vulnerable to
 // arrows and formation counters like braced pikes. Read `charging` for those.
 const CHARGE_SPEED_MULT = 1.8;
@@ -138,8 +145,9 @@ export class Squad {
   // impact (0..1.3). Scales impact damage: charges need runway to be deadly.
   // BW7 slopes will feed this too (downhill > 1, uphill < 1).
   impactPower = 1;
-  // A squad that has rallied once flees for good the next time it breaks.
-  rallied = false;
+  // How many times this squad has been rallied. Past MAX_RALLIES it quits the
+  // field the next time it breaks instead of reforming again.
+  rallies = 0;
   // Seconds of breathing room accumulated while routing; battle drives this.
   rallyProgress = 0;
   anchorX: number;
@@ -426,8 +434,8 @@ export class Squad {
     if (this.state !== 'fleeing' && losses >= SHATTER_CASUALTY_FRACTION) {
       this.breakAndRun('fleeing');
     } else if (this.state === 'steady' && losses >= ROUT_CASUALTY_FRACTION) {
-      // A squad that already rallied once doesn't break twice — it quits the field.
-      this.breakAndRun(this.rallied ? 'fleeing' : 'routing');
+      // Out of rallies means out of the battle; otherwise it can be brought back.
+      this.breakAndRun(this.rallies >= MAX_RALLIES ? 'fleeing' : 'routing');
     }
     return dead;
   }
@@ -454,7 +462,7 @@ export class Squad {
   rally(): void {
     if (this.state !== 'routing' || this.soldiers.length === 0) return;
     this.state = 'steady';
-    this.rallied = true;
+    this.rallies++;
     this.rallyProgress = 0;
     let cx = 0;
     let cy = 0;

@@ -175,7 +175,7 @@ console.log('S6: rout and rally');
     if (broke && blue.state === 'steady') break;
   }
   assert(broke, 'S6: squad never routed');
-  assert(blue.state === 'steady' && blue.rallied, 'S6: routed squad never rallied');
+  assert(blue.state === 'steady' && blue.rallies > 0, 'S6: routed squad never rallied');
   assert(blue.soldiers.length > 0, 'S6: rallied squad has no men');
 }
 
